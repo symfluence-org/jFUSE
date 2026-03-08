@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jfuse"
-version = "0.1.0"
+version = "0.2.0"
 description = "JAX-based differentiable hydrological modeling framework implementing FUSE and routing"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
 authors = [
     {name = "Darri Eythorsson", email = "darri.eythorsson@ucalgary.ca"}
@@ -24,7 +24,7 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -45,6 +45,7 @@ dependencies = [
     "optax>=0.1.7",
     "equinox>=0.11.0",
     "typing-extensions>=4.5.0",
+    "symfluence>=0.7.0",
 ]
 
 [project.optional-dependencies]
@@ -73,6 +74,9 @@ Issues = "https://github.com/DarriEy/jFUSE/issues"
 
 [project.scripts]
 jfuse = "jfuse.cli:main"
+
+[project.entry-points."symfluence.plugins"]
+jfuse = "jfuse:register"
 
 [tool.setuptools.packages.find]
 where = ["src"]

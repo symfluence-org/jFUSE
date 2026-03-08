@@ -120,6 +120,47 @@ def quick_setup(
     return CoupledModel.from_netcdf(forcing_path, network_path, config)
 
 
+def register():
+    """Register jFUSE components with SYMFLUENCE's model registry.
+
+    Called automatically by SYMFLUENCE's plugin discovery system via the
+    ``symfluence.plugins`` entry point, or manually with::
+
+        import jfuse
+        jfuse.register()
+    """
+    from symfluence.core.registry import model_manifest
+    from symfluence.models.registry import ModelRegistry
+    from symfluence.optimization.registry import OptimizerRegistry
+
+    from jfuse.sfconfig import JFUSEConfigAdapter
+    from jfuse.extractor import JFUSEResultExtractor
+    from jfuse.runner import JFUSERunner
+    from jfuse.preprocessor import JFUSEPreProcessor
+    from jfuse.postprocessor import JFUSEPostprocessor, JFUSERoutedPostprocessor
+    from jfuse.calibration.worker import JFUSEWorker
+    from jfuse.calibration.parameter_manager import JFUSEParameterManager
+    from jfuse.calibration.optimizer import JFUSEModelOptimizer
+
+    # Register via unified manifest
+    model_manifest(
+        "JFUSE",
+        config_adapter=JFUSEConfigAdapter,
+        result_extractor=JFUSEResultExtractor,
+    )
+
+    # Register individual components
+    ModelRegistry.register_runner('JFUSE', method_name='run_jfuse')(JFUSERunner)
+    ModelRegistry.register_preprocessor('JFUSE')(JFUSEPreProcessor)
+    ModelRegistry.register_postprocessor('JFUSE')(JFUSEPostprocessor)
+    ModelRegistry.register_postprocessor('JFUSE_routed')(JFUSERoutedPostprocessor)
+
+    # Register calibration components
+    OptimizerRegistry.register_worker('JFUSE')(JFUSEWorker)
+    OptimizerRegistry.register_parameter_manager('JFUSE')(JFUSEParameterManager)
+    OptimizerRegistry.register_optimizer('JFUSE')(JFUSEModelOptimizer)
+
+
 __all__ = [
     # Version
     "__version__",
@@ -174,4 +215,6 @@ __all__ = [
     "mae_loss",
     # Quick setup
     "quick_setup",
+    # SYMFLUENCE integration
+    "register",
 ]
