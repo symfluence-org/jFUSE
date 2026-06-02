@@ -129,9 +129,8 @@ def register():
         import jfuse
         jfuse.register()
     """
+    from symfluence.core.registries import R
     from symfluence.core.registry import model_manifest
-    from symfluence.models.registry import ModelRegistry
-    from symfluence.optimization.registry import OptimizerRegistry
 
     from jfuse.sfconfig import JFUSEConfigAdapter
     from jfuse.extractor import JFUSEResultExtractor
@@ -142,23 +141,22 @@ def register():
     from jfuse.calibration.parameter_manager import JFUSEParameterManager
     from jfuse.calibration.optimizer import JFUSEModelOptimizer
 
-    # Register via unified manifest
+    # Register all components via the unified manifest.
     model_manifest(
         "JFUSE",
         config_adapter=JFUSEConfigAdapter,
         result_extractor=JFUSEResultExtractor,
+        runner=JFUSERunner,
+        runner_method='run_jfuse',
+        preprocessor=JFUSEPreProcessor,
+        postprocessor=JFUSEPostprocessor,
+        worker=JFUSEWorker,
+        parameter_manager=JFUSEParameterManager,
+        optimizer=JFUSEModelOptimizer,
     )
 
-    # Register individual components
-    ModelRegistry.register_runner('JFUSE', method_name='run_jfuse')(JFUSERunner)
-    ModelRegistry.register_preprocessor('JFUSE')(JFUSEPreProcessor)
-    ModelRegistry.register_postprocessor('JFUSE')(JFUSEPostprocessor)
-    ModelRegistry.register_postprocessor('JFUSE_routed')(JFUSERoutedPostprocessor)
-
-    # Register calibration components
-    OptimizerRegistry.register_worker('JFUSE')(JFUSEWorker)
-    OptimizerRegistry.register_parameter_manager('JFUSE')(JFUSEParameterManager)
-    OptimizerRegistry.register_optimizer('JFUSE')(JFUSEModelOptimizer)
+    # Routed postprocessor variant registered under its own key.
+    R.postprocessors.add('JFUSE_routed', JFUSERoutedPostprocessor)
 
 
 __all__ = [
