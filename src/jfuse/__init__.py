@@ -136,7 +136,7 @@ def register():
     from jfuse.extractor import JFUSEResultExtractor
     from jfuse.runner import JFUSERunner
     from jfuse.preprocessor import JFUSEPreProcessor
-    from jfuse.postprocessor import JFUSEPostprocessor, JFUSERoutedPostprocessor
+    from jfuse.postprocessor import JFUSEPostProcessor, JFUSERoutedPostProcessor
     from jfuse.calibration.worker import JFUSEWorker
     from jfuse.calibration.parameter_manager import JFUSEParameterManager
     from jfuse.calibration.optimizer import JFUSEModelOptimizer
@@ -149,14 +149,14 @@ def register():
         runner=JFUSERunner,
         runner_method='run_jfuse',
         preprocessor=JFUSEPreProcessor,
-        postprocessor=JFUSEPostprocessor,
+        postprocessor=JFUSEPostProcessor,
         worker=JFUSEWorker,
         parameter_manager=JFUSEParameterManager,
         optimizer=JFUSEModelOptimizer,
     )
 
     # Routed postprocessor variant registered under its own key.
-    R.postprocessors.add('JFUSE_routed', JFUSERoutedPostprocessor)
+    R.postprocessors.add('JFUSE_routed', JFUSERoutedPostProcessor)
 
 
 __all__ = [

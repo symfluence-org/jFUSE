@@ -5,13 +5,13 @@
 jFUSE Model Postprocessor.
 
 Extracts and processes jFUSE model output for analysis and visualization.
-Uses StandardModelPostprocessor for minimal boilerplate.
+Uses StandardModelPostProcessor for minimal boilerplate.
 """
 
-from symfluence.models.base.standard_postprocessor import StandardModelPostprocessor
+from symfluence.models.base.standard_postprocessor import StandardModelPostProcessor
 
 
-class JFUSEPostprocessor(StandardModelPostprocessor):
+class JFUSEPostProcessor(StandardModelPostProcessor):
     """
     Postprocessor for jFUSE model output.
 
@@ -67,7 +67,7 @@ class JFUSEPostprocessor(StandardModelPostprocessor):
         return nc_file
 
 
-class JFUSERoutedPostprocessor(StandardModelPostprocessor):
+class JFUSERoutedPostProcessor(StandardModelPostProcessor):
     """
     Postprocessor for routed jFUSE output (via external routing).
 
