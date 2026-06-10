@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jfuse"
-version = "0.2.0"
+version = "0.2.1"
 description = "JAX-based differentiable hydrological modeling framework implementing FUSE and routing"
 readme = "README.md"
 license = {text = "Apache-2.0"}
