@@ -4,10 +4,10 @@
 
 # JAX-based differentiable hydrological modeling framework implementing FUSE
 
-![CI](https://github.com/DarriEy/jFUSE/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/symfluence-org/jFUSE/actions/workflows/ci.yml/badge.svg)
 [![PyPI version](https://img.shields.io/pypi/v/jfuse.svg)](https://pypi.org/project/jfuse/)
 [![Python versions](https://img.shields.io/pypi/pyversions/jfuse.svg)](https://pypi.org/project/jfuse/)
-[![License](https://img.shields.io/github/license/DarriEy/jFUSE.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/symfluence-org/jFUSE.svg)](LICENSE)
 
 A fully differentiable JAX implementation of the Framework for Understanding Structural Errors (FUSE) hydrological model from Clark et al. (2008), with Muskingum-Cunge routing.
 
@@ -34,7 +34,7 @@ A fully differentiable JAX implementation of the Framework for Understanding Str
 
 ```bash
 # Clone or download the package
-git clone https://github.com/DarriEy/jFUSE.git
+git clone https://github.com/symfluence-org/jFUSE.git
 cd jfuse
 
 # Install in development mode
@@ -70,7 +70,7 @@ We provide a ready-to-use example dataset for jFUSE (lumped and distributed setu
 Download the ZIP release asset and unzip it into a `data/` folder:
 
 ```bash
-wget https://github.com/DarriEy/jFUSE/releases/download/v0.1.0/jfuse-example-data-v0.1.0.zip
+wget https://github.com/symfluence-org/jFUSE/releases/download/v0.1.0/jfuse-example-data-v0.1.0.zip
 unzip jfuse-example-data-v0.1.0.zip
 mv jfuse-example-data-v0.1.0 data
 ```

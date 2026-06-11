@@ -66,9 +66,9 @@ gpu = [
 all = ["jfuse[dev,viz,gpu]"]
 
 [project.urls]
-Homepage = "https://github.com/DarriEy/jFUSE"
-Repository = "https://github.com/DarriEy/jFUSE"
-Issues = "https://github.com/DarriEy/jFUSE/issues"
+Homepage = "https://github.com/symfluence-org/jFUSE"
+Repository = "https://github.com/symfluence-org/jFUSE"
+Issues = "https://github.com/symfluence-org/jFUSE/issues"
 
 [project.scripts]
 jfuse = "jfuse.cli:main"
