@@ -8,7 +8,7 @@ version = "0.2.1"
 description = "JAX-based differentiable hydrological modeling framework implementing FUSE and routing"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 authors = [
     {name = "Darri Eythorsson", email = "darri.eythorsson@ucalgary.ca"}
 ]
@@ -27,8 +27,6 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Hydrology",
@@ -86,7 +84,7 @@ jfuse = ["py.typed"]
 
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
+target-version = ["py311", "py312"]
 
 [tool.isort]
 profile = "black"
@@ -94,10 +92,10 @@ line_length = 100
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py311"
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true

@@ -23,7 +23,7 @@ A fully differentiable JAX implementation of the Framework for Understanding Str
 - **GPU-ready**: Seamless scaling to GPU with JAX
 
 ### Requirements
-- Python >= 3.9
+- Python >= 3.11
 - JAX >= 0.4.0
 - equinox >= 0.11.0
 - optax >= 0.1.7
