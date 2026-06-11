@@ -146,7 +146,8 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
             time = pd.to_datetime(forcing_ds.time.values)
 
             # Precipitation (check various naming conventions)
-            precip_vars = ['pr', 'precip', 'pptrate', 'prcp', 'precipitation']
+            precip_vars = ['pr', 'precip', 'pptrate', 'prcp', 'precipitation',
+                           'precipitation_flux', 'precipitation_rate']
             precip = None
             precip_var_name = None
             for var in precip_vars:
@@ -171,7 +172,8 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
                 self.logger.info("Precipitation values appear to be in mm/s, converting to mm/day")
 
             # Temperature (check various naming conventions)
-            temp_vars = ['temp', 'tas', 'airtemp', 'tair', 'temperature', 'tmean']
+            temp_vars = ['temp', 'tas', 'airtemp', 'tair', 'temperature', 'tmean',
+                         'air_temperature']
             temp = None
             for var in temp_vars:
                 if var in forcing_ds:
