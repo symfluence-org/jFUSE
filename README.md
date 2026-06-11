@@ -70,9 +70,9 @@ We provide a ready-to-use example dataset for jFUSE (lumped and distributed setu
 Download the ZIP release asset and unzip it into a `data/` folder:
 
 ```bash
-wget https://github.com/symfluence-org/jFUSE/releases/download/v0.1.0/jfuse-example-data-v0.1.0.zip
-unzip jfuse-example-data-v0.1.0.zip
-mv jfuse-example-data-v0.1.0 data
+wget https://github.com/symfluence-org/jFUSE/releases/latest/download/jfuse-example-data.zip
+unzip jfuse-example-data.zip
+mv jfuse-example-data data
 ```
 
 ## Lumped configuration example
