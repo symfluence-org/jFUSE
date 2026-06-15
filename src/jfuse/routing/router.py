@@ -357,36 +357,57 @@ def route_network(
     network: NetworkArrays,
     dt: float = 3600.0,
     initial_Q: Optional[Array] = None,
+    n_substeps: int = 1,
 ) -> Array:
     """Route a time series of lateral inflows through the network.
-    
+
     Args:
         lateral_inflows: Lateral inflows [n_timesteps, n_reaches] in m³/s
         network: Network topology and parameters
         dt: Timestep in seconds (default 1 hour)
         initial_Q: Initial discharge [n_reaches] (default 0.1 m³/s)
-        
+        n_substeps: Number of Muskingum sub-steps per input timestep (static).
+            Each input row is routed with ``n_substeps`` steps of ``dt /
+            n_substeps``, holding the lateral inflow constant across the
+            sub-steps, and the outlet is sampled at the end of each input
+            timestep. Smaller sub-steps keep the Muskingum coefficients in
+            their valid (non-clamped) range, improving routing stability when
+            ``dt`` is large relative to reach travel times.
+
     Returns:
         Outlet discharge time series [n_timesteps]
     """
     n_timesteps, n_reaches = lateral_inflows.shape
-    
+
     # Initial state
     if initial_Q is None:
         initial_Q = jnp.full(n_reaches, 0.1)
-    
+
     initial_state = RouterState(
         Q=initial_Q,
         Q_prev=initial_Q,
         I_prev=jnp.zeros(n_reaches),
     )
-    
+
+    # Sub-step by holding each row's inflow constant over n_substeps steps of
+    # dt/n_substeps, then sampling the outlet at the end of each input timestep.
+    if n_substeps > 1:
+        step_dt = dt / n_substeps
+        inflows = jnp.repeat(lateral_inflows, n_substeps, axis=0)
+    else:
+        step_dt = dt
+        inflows = lateral_inflows
+
     def scan_fn(state, lateral):
-        new_state, outlet_Q = route_network_step(state, lateral, network, dt)
+        new_state, outlet_Q = route_network_step(state, lateral, network, step_dt)
         return new_state, outlet_Q
-    
-    _, outlet_series = lax.scan(scan_fn, initial_state, lateral_inflows)
-    
+
+    _, outlet_series = lax.scan(scan_fn, initial_state, inflows)
+
+    if n_substeps > 1:
+        # Keep the last sub-step of each input timestep.
+        outlet_series = outlet_series[n_substeps - 1::n_substeps]
+
     return outlet_series
 
 

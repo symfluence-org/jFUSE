@@ -176,6 +176,14 @@ class JFUSEWorker(InMemoryModelWorker):
         self.network_file = self._get_jfuse_config('network_file', None)
         self.hru_areas_file = self._get_jfuse_config('hru_areas_file', None)
 
+        # Muskingum routing sub-stepping (for distributed/coupled runs)
+        self.routing_substep_method = self._get_jfuse_config(
+            'routing_substep_method', 'adaptive'
+        )
+        self.routing_max_substeps = int(
+            self._get_jfuse_config('routing_max_substeps', 10)
+        )
+
         self._is_distributed = (
             self.spatial_mode == 'distributed' or
             self.n_hrus > 1 or
@@ -452,6 +460,8 @@ class JFUSEWorker(InMemoryModelWorker):
             network=network_arrays,
             hru_areas=self._hru_areas,
             n_hrus=len(self._hru_areas),
+            routing_substep_method=self.routing_substep_method,
+            routing_max_substeps=self.routing_max_substeps,
         )
         self._model = self._coupled_model.fuse_model
         self._default_params = self._coupled_model.default_params()

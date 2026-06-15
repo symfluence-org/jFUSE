@@ -13,6 +13,7 @@ The coupling handles:
 
 from typing import Tuple, Optional, Dict, Any, NamedTuple
 from functools import partial
+import math
 import warnings
 
 import jax
@@ -97,6 +98,7 @@ def coupled_simulate(
     initial_Q: Optional[Array] = None,
     fuse_dt: float = 1.0,
     routing_dt: Optional[float] = None,
+    n_substeps: int = 1,
     start_doy: int = 1,
 ) -> Tuple[Array, Array, FUSEState]:
     """Run coupled FUSE + routing simulation.
@@ -121,6 +123,8 @@ def coupled_simulate(
             inflow series it is given. Routing a daily inflow series at a
             smaller dt (e.g. 3600 s) with no sub-stepping over-attenuates and
             over-lags the hydrograph by fuse_dt*86400 / routing_dt.
+        n_substeps: Number of Muskingum sub-steps per FUSE timestep for routing
+            stability (see route_network). Default 1 (no sub-stepping).
         start_doy: Starting day of year
         
     Returns:
@@ -190,9 +194,50 @@ def coupled_simulate(
     
     # Route through network
     from .routing import route_network
-    outlet_Q = route_network(lateral_inflow, updated_network, routing_dt, initial_Q)
+    outlet_Q = route_network(
+        lateral_inflow, updated_network, routing_dt, initial_Q, n_substeps=n_substeps
+    )
     
     return outlet_Q, runoff, final_fuse_state
+
+
+def _resolve_n_substeps(
+    method: str,
+    max_substeps: int,
+    network: Optional[NetworkArrays],
+    dt: float,
+) -> int:
+    """Resolve a static Muskingum sub-step count for routing stability.
+
+    'fixed' uses ``max_substeps`` directly. 'adaptive' targets a sub-step close
+    to the shortest reach travel time (evaluated at a reference discharge) so
+    the Courant number stays near 1, capped at ``max_substeps``. Returns 1 when
+    sub-stepping is disabled or no network is available.
+    """
+    from .routing.router import compute_celerity
+
+    max_substeps = int(max_substeps)
+    if network is None or max_substeps <= 1:
+        return 1
+    if method == 'fixed':
+        return max(1, max_substeps)
+
+    # adaptive: estimate the shortest reach travel time at a reference discharge.
+    celerity = compute_celerity(
+        1.0,
+        network.slopes,
+        network.manning_n,
+        network.width_coef,
+        network.width_exp,
+        network.depth_coef,
+        network.depth_exp,
+    )
+    travel_times = network.lengths / jnp.maximum(celerity, 1e-3)
+    k_min = float(jnp.min(travel_times))
+    if not (k_min > 0.0):
+        return max(1, max_substeps)
+    n = math.ceil(dt / k_min)
+    return int(min(max(n, 1), max_substeps))
 
 
 class CoupledModel(eqx.Module):
@@ -214,6 +259,7 @@ class CoupledModel(eqx.Module):
     network: NetworkArrays
     hru_areas: Array
     routing_dt: Optional[float] = eqx.field(static=True)
+    n_substeps: int = eqx.field(static=True)
 
     def __init__(
         self,
@@ -222,6 +268,8 @@ class CoupledModel(eqx.Module):
         hru_areas: Array = None,
         n_hrus: int = 1,
         routing_dt: Optional[float] = None,
+        routing_substep_method: str = 'adaptive',
+        routing_max_substeps: int = 10,
     ):
         """Initialize coupled model.
         
@@ -232,6 +280,10 @@ class CoupledModel(eqx.Module):
             n_hrus: Number of HRUs (used if hru_areas not provided)
             routing_dt: Routing timestep in seconds. Defaults to None, which
                 routes one step per FUSE day (86400 s); see coupled_simulate.
+            routing_substep_method: 'adaptive' (sub-steps chosen from reach
+                travel times) or 'fixed' (always routing_max_substeps).
+            routing_max_substeps: Maximum Muskingum sub-steps per FUSE step.
+                Set to 1 to disable sub-stepping.
         """
         if fuse_config is None:
             fuse_config = PRMS_CONFIG
@@ -243,6 +295,13 @@ class CoupledModel(eqx.Module):
         self.network = network
         self.hru_areas = hru_areas
         self.routing_dt = routing_dt
+        # Resolve a static sub-step count from the (concrete) network geometry.
+        self.n_substeps = _resolve_n_substeps(
+            routing_substep_method,
+            routing_max_substeps,
+            network,
+            routing_dt if routing_dt is not None else 86400.0,
+        )
     
     @classmethod
     def from_netcdf(
@@ -325,6 +384,7 @@ class CoupledModel(eqx.Module):
             initial_Q,
             fuse_dt=1.0,
             routing_dt=self.routing_dt,
+            n_substeps=self.n_substeps,
             start_doy=start_doy,
         )
         

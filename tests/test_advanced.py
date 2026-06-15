@@ -499,6 +499,69 @@ class TestCoupledModel:
         # ... and is distinct from the previous (buggy) 3600s behavior.
         assert not jnp.allclose(out_default, out_hourly, atol=1e-4)
 
+    def test_single_hru_coupled_runs(self):
+        """A single HRU + single reach coupled run must not raise (regression).
+
+        Previously the scalar default FUSE state (n_hrus=1) paired with
+        shape-(1,) forcing rows tripped a lax.scan carry-type mismatch.
+        """
+        from jfuse import CoupledModel, PRMS_CONFIG
+        from jfuse.routing import create_network_from_topology
+
+        network = create_network_from_topology([0], [-1], [1000.0], [0.01])
+        model = CoupledModel(
+            fuse_config=PRMS_CONFIG,
+            network=network.to_arrays(),
+            hru_areas=jnp.ones(1) * 1e6,
+            n_hrus=1,
+        )
+
+        n_days = 20
+        precip = jnp.ones((n_days, 1)) * 10.0
+        pet = jnp.ones((n_days, 1)) * 3.0
+        temp = jnp.ones((n_days, 1)) * 15.0
+
+        outlet_Q, runoff = model.simulate((precip, pet, temp), model.default_params())
+
+        assert outlet_Q.shape == (n_days,)
+        assert runoff.shape == (n_days, 1)
+        assert jnp.all(jnp.isfinite(outlet_Q))
+        assert jnp.all(outlet_Q >= 0)
+
+    def test_routing_substeps_conserve_and_resolve(self):
+        """Sub-stepping stays finite/mass-conserving and resolves sane counts."""
+        from jfuse import CoupledModel, PRMS_CONFIG
+        from jfuse.routing import create_network_from_topology, route_network
+        from jfuse.coupled import _resolve_n_substeps
+
+        net = create_network_from_topology([0], [-1], [2000.0], [0.005]).to_arrays()
+        n_t = 60
+        inflow = jnp.ones((n_t, 1)) * 5.0
+
+        out1 = route_network(inflow, net, dt=86400.0, n_substeps=1)
+        out8 = route_network(inflow, net, dt=86400.0, n_substeps=8)
+
+        assert out8.shape == (n_t,)
+        assert jnp.all(jnp.isfinite(out8))
+        # Steady-state outlet equals the constant inflow, independent of sub-steps.
+        assert abs(float(out8[-1]) - 5.0) < 1e-2
+        assert abs(float(out1[-1]) - 5.0) < 1e-2
+
+        # Resolver: fixed honors the count, max=1 disables, adaptive stays bounded.
+        assert _resolve_n_substeps('fixed', 5, net, 86400.0) == 5
+        assert _resolve_n_substeps('adaptive', 1, net, 86400.0) == 1
+        assert 1 <= _resolve_n_substeps('adaptive', 10, net, 86400.0) <= 10
+
+        # CoupledModel exposes the resolved static count.
+        common = dict(
+            fuse_config=PRMS_CONFIG, network=net,
+            hru_areas=jnp.ones(1) * 1e6, n_hrus=1,
+        )
+        assert CoupledModel(**common, routing_max_substeps=1).n_substeps == 1
+        assert CoupledModel(
+            **common, routing_substep_method='fixed', routing_max_substeps=4
+        ).n_substeps == 4
+
 
 class TestLongSimulations:
     """Tests for numerical stability over long simulations."""

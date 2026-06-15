@@ -327,8 +327,17 @@ def fuse_simulate(
             states: Final model state
     """
     precip, pet, temp = forcing_series
-    n_timesteps = precip.shape[0]
-    
+
+    # Broadcast the initial state to the forcing's per-HRU shape so the scan
+    # carry type is stable. Without this, a scalar default state (n_hrus=1)
+    # paired with shape-(1,) forcing rows yields a (1,) carry-out != () carry-in
+    # and lax.scan raises a carry-type mismatch.
+    hru_shape = precip.shape[1:]
+    if hru_shape:
+        initial_state = jax.tree.map(
+            lambda x: jnp.broadcast_to(x, hru_shape), initial_state
+        )
+
     def scan_fn(carry, inputs):
         state, doy = carry
         p, pe, t = inputs
