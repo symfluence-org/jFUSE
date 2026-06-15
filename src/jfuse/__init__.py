@@ -25,7 +25,7 @@ Example:
 import jax
 jax.config.update("jax_enable_x64", False)
 
-__version__ = "0.1.0"
+__version__ = "0.2.1"
 __author__ = "Darri Eythorsson"
 
 # Core types and configuration

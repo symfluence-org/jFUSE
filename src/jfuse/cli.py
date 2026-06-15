@@ -17,6 +17,7 @@ jax.config.update("jax_enable_x64", True)
 import argparse
 import sys
 import time
+import warnings
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple, Dict, Any
@@ -667,15 +668,17 @@ def run_simulation(
         obs_valid = obs_eval[valid]
         
         if len(sim_valid) > 0:
-            # NSE
+            # NSE (undefined when observations are constant -> ss_tot == 0)
             ss_res = jnp.sum((obs_valid - sim_valid)**2)
             ss_tot = jnp.sum((obs_valid - jnp.mean(obs_valid))**2)
-            nse = 1 - ss_res / ss_tot
-            
-            # KGE
+            nse = jnp.where(ss_tot > 0, 1 - ss_res / ss_tot, jnp.nan)
+
+            # KGE (alpha/beta undefined when obs std/mean are zero)
+            std_obs = jnp.std(obs_valid)
+            mean_obs = jnp.mean(obs_valid)
             r = jnp.corrcoef(sim_valid, obs_valid)[0, 1]
-            alpha = jnp.std(sim_valid) / jnp.std(obs_valid)
-            beta = jnp.mean(sim_valid) / jnp.mean(obs_valid)
+            alpha = jnp.where(std_obs > 0, jnp.std(sim_valid) / std_obs, jnp.nan)
+            beta = jnp.where(mean_obs != 0, jnp.mean(sim_valid) / mean_obs, jnp.nan)
             kge = 1 - jnp.sqrt((r - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
             
             metrics['nse'] = float(nse)
@@ -1069,23 +1072,35 @@ def run_calibration(
     valid = ~(jnp.isnan(sim_eval) | jnp.isnan(obs_eval))
     sim_valid = sim_eval[valid]
     obs_valid = obs_eval[valid]
-    
-    ss_res = jnp.sum((obs_valid - sim_valid)**2)
-    ss_tot = jnp.sum((obs_valid - jnp.mean(obs_valid))**2)
-    nse = 1 - ss_res / ss_tot
-    
-    r = jnp.corrcoef(sim_valid, obs_valid)[0, 1]
-    alpha = jnp.std(sim_valid) / jnp.std(obs_valid)
-    beta = jnp.mean(sim_valid) / jnp.mean(obs_valid)
-    kge = 1 - jnp.sqrt((r - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
-    
-    metrics = {
-        'nse': float(nse),
-        'kge': float(kge),
-        'r': float(r),
-        'alpha': float(alpha),
-        'beta': float(beta),
-    }
+
+    if len(sim_valid) > 0:
+        # NSE (undefined when observations are constant -> ss_tot == 0)
+        ss_res = jnp.sum((obs_valid - sim_valid)**2)
+        ss_tot = jnp.sum((obs_valid - jnp.mean(obs_valid))**2)
+        nse = jnp.where(ss_tot > 0, 1 - ss_res / ss_tot, jnp.nan)
+
+        # KGE (alpha/beta undefined when obs std/mean are zero)
+        std_obs = jnp.std(obs_valid)
+        mean_obs = jnp.mean(obs_valid)
+        r = jnp.corrcoef(sim_valid, obs_valid)[0, 1]
+        alpha = jnp.where(std_obs > 0, jnp.std(sim_valid) / std_obs, jnp.nan)
+        beta = jnp.where(mean_obs != 0, jnp.mean(sim_valid) / mean_obs, jnp.nan)
+        kge = 1 - jnp.sqrt((r - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
+
+        metrics = {
+            'nse': float(nse),
+            'kge': float(kge),
+            'r': float(r),
+            'alpha': float(alpha),
+            'beta': float(beta),
+        }
+    else:
+        warnings.warn(
+            "No valid (non-NaN) overlapping timesteps between simulation and "
+            "observations after warmup; metrics are undefined.",
+            UserWarning,
+        )
+        metrics = {k: float('nan') for k in ('nse', 'kge', 'r', 'alpha', 'beta')}
     
     if verbose:
         print(f"\nFinal performance:")

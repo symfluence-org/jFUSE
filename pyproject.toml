@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jfuse"
-version = "0.2.1"
+dynamic = ["version"]
 description = "JAX-based differentiable hydrological modeling framework implementing FUSE and routing"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -75,6 +75,9 @@ jfuse = "jfuse.cli:main"
 
 [project.entry-points."symfluence.plugins"]
 jfuse = "jfuse:register"
+
+[tool.setuptools.dynamic]
+version = {attr = "jfuse.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

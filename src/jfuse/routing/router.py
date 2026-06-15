@@ -215,8 +215,8 @@ def compute_muskingum_params(
     C1 = jnp.maximum(C1, 0.0)
     C2 = jnp.maximum(C2, 0.0)
     
-    # Renormalize to sum to 1
-    total = C0 + C1 + C2
+    # Renormalize to sum to 1 (guard against all-clamped-to-zero -> NaN)
+    total = jnp.maximum(C0 + C1 + C2, 1e-8)
     C0 = C0 / total
     C1 = C1 / total
     C2 = C2 / total
