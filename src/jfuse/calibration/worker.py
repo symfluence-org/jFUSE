@@ -30,25 +30,23 @@ try:
     import equinox as eqx
     import jfuse
     from jfuse import (
+        JFUSE_CONFIGS,
+        MAX_GRADIENT_CONFIG,
         PARAM_BOUNDS,
-        BaseflowType,
+        PRMS_GRADIENT_CONFIG,
         CoupledModel,
-        EvaporationType,
         FUSEModel,
-        InterflowType,
-        LowerLayerArch,
         ModelConfig,
         Parameters,
-        PercolationType,
-        SurfaceRunoffType,
-        UpperLayerArch,
+        build_config_from_decisions,
         create_fuse_model,
         create_network_from_topology,
         load_network,
     )
-    from jfuse.fuse.config import RainfallErrorType, RoutingType, SnowType
 
-    # Define JAX-native loss functions locally (jfuse doesn't export them anymore)
+    # Local loss variants: unlike jfuse's NaN-robust exports, these assume
+    # pre-masked inputs (multi_gauge_kge_loss masks NaNs before calling) and
+    # use population std; kept local to preserve that calibration behavior.
     def kge_loss(sim, obs):
         """KGE loss function for jFUSE (1 - KGE, lower is better).
 
@@ -111,42 +109,9 @@ try:
             return jnp.median(loss_arr)
         return jnp.mean(loss_arr)
 
-    # Custom config optimized for gradient-based calibration (ADAM/LBFGS)
-    PRMS_GRADIENT_CONFIG = ModelConfig(
-        upper_arch=UpperLayerArch.TENSION2_FREE,
-        lower_arch=LowerLayerArch.SINGLE_NOEVAP,
-        baseflow=BaseflowType.NONLINEAR,
-        percolation=PercolationType.FREE_STORAGE,
-        surface_runoff=SurfaceRunoffType.UZ_PARETO,
-        evaporation=EvaporationType.SEQUENTIAL,
-        interflow=InterflowType.LINEAR,
-        snow=SnowType.TEMP_INDEX,
-        routing=RoutingType.NONE,
-        rainfall_error=RainfallErrorType.ADDITIVE,
-    )
-
-    # Maximum gradient config - Sacramento-based architecture
-    MAX_GRADIENT_CONFIG = ModelConfig(
-        upper_arch=UpperLayerArch.TENSION2_FREE,
-        lower_arch=LowerLayerArch.TENSION_2RESERV,
-        baseflow=BaseflowType.PARALLEL_LINEAR,
-        percolation=PercolationType.LOWER_DEMAND,
-        surface_runoff=SurfaceRunoffType.UZ_PARETO,
-        evaporation=EvaporationType.ROOT_WEIGHT,
-        interflow=InterflowType.LINEAR,
-        snow=SnowType.TEMP_INDEX,
-        routing=RoutingType.NONE,
-        rainfall_error=RainfallErrorType.ADDITIVE,
-    )
-
-    JFUSE_CONFIGS = {
-        'prms': None,
-        'prms_gradient': PRMS_GRADIENT_CONFIG,
-        'max_gradient': MAX_GRADIENT_CONFIG,
-        'topmodel': None,
-        'sacramento': None,
-        'vic': None,
-    }
+    # Gradient configs (PRMS_GRADIENT_CONFIG, MAX_GRADIENT_CONFIG) and the
+    # name->config registry (JFUSE_CONFIGS) are imported from jfuse.configs
+    # above so they stay in sync with the runner.
     HAS_JFUSE = True
 except ImportError:
     HAS_JFUSE = False
@@ -166,6 +131,7 @@ except ImportError:
     PRMS_GRADIENT_CONFIG = None
     MAX_GRADIENT_CONFIG = None
     JFUSE_CONFIGS = {}
+    build_config_from_decisions = None
 
 
 class JFUSEWorker(InMemoryModelWorker):
@@ -420,42 +386,12 @@ class JFUSEWorker(InMemoryModelWorker):
 
     @staticmethod
     def _build_config_from_decisions(decisions: dict) -> 'ModelConfig':
-        """Build a jFUSE ModelConfig from Fortran FUSE decision options."""
-        # Import the decision map from the runner module
-        from jfuse.runner import FUSE_DECISION_MAP
-        resolved = {}
-        for key, value in decisions.items():
-            if isinstance(value, list):
-                resolved[key] = value[0] if value else None
-            else:
-                resolved[key] = value
+        """Build a jFUSE ModelConfig from Fortran FUSE decision options.
 
-        arch2_val = resolved.get('ARCH2', 'fixedsiz_2')
-
-        config_kwargs = {
-            'upper_arch': FUSE_DECISION_MAP['ARCH1'].get(
-                resolved.get('ARCH1', 'tension1_1'), UpperLayerArch.TENSION_FREE),
-            'lower_arch': FUSE_DECISION_MAP['ARCH2'].get(
-                arch2_val, LowerLayerArch.SINGLE_NOEVAP),
-            'baseflow': FUSE_DECISION_MAP['ARCH2_BASEFLOW'].get(
-                arch2_val, BaseflowType.LINEAR),
-            'percolation': FUSE_DECISION_MAP['QPERC'].get(
-                resolved.get('QPERC', 'perc_f2sat'), PercolationType.FREE_STORAGE),
-            'surface_runoff': FUSE_DECISION_MAP['QSURF'].get(
-                resolved.get('QSURF', 'arno_x_vic'), SurfaceRunoffType.UZ_PARETO),
-            'evaporation': FUSE_DECISION_MAP['ESOIL'].get(
-                resolved.get('ESOIL', 'rootweight'), EvaporationType.ROOT_WEIGHT),
-            'interflow': FUSE_DECISION_MAP['QINTF'].get(
-                resolved.get('QINTF', 'intflwnone'), InterflowType.NONE),
-            'snow': FUSE_DECISION_MAP['SNOWM'].get(
-                resolved.get('SNOWM', 'temp_index'), SnowType.TEMP_INDEX),
-            'routing': FUSE_DECISION_MAP['Q_TDH'].get(
-                resolved.get('Q_TDH', 'rout_gamma'), RoutingType.GAMMA),
-            'rainfall_error': FUSE_DECISION_MAP['RFERR'].get(
-                resolved.get('RFERR', 'multiplc_e'), RainfallErrorType.MULTIPLICATIVE),
-        }
-
-        return ModelConfig(**config_kwargs)
+        Delegates to :func:`jfuse.build_config_from_decisions` so the decision
+        mapping lives in a single place (see :mod:`jfuse.configs`).
+        """
+        return build_config_from_decisions(decisions)
 
     def _initialize_distributed_model(self) -> None:
         """Initialize CoupledModel for distributed mode with routing."""

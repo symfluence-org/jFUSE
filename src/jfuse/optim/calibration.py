@@ -6,15 +6,12 @@ Supports multi-objective optimization, parameter bounds, and adaptive learning r
 
 from __future__ import annotations
 
-import dataclasses
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, Any, NamedTuple
-from functools import partial
 import time
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import optax
 from jax import random
 
@@ -362,8 +359,10 @@ class Calibrator:
         self.model = model
         self.config = config or CalibrationConfig()
         self.optimizer = create_optimizer(self.config)
+        # Optional pre-built loss function. When set (e.g. by
+        # calibrate_multi_site), calibrate() uses it instead of building one
+        # from a single forcing/observed pair.
         self._loss_fn = None
-        self._compiled_step = None
     
     def _create_loss_fn(
         self,
@@ -387,8 +386,7 @@ class Calibrator:
             Loss function taking parameters and returning scalar loss
         """
         from ..coupled import nse_loss, kge_loss, mse_loss, rmse_loss, mae_loss, CoupledModel
-        from ..fuse import FUSEModel
-        
+
         # Map loss names to functions
         loss_functions = {
             'kge': kge_loss,
@@ -559,10 +557,16 @@ class Calibrator:
         if initial_params is None:
             initial_params = self.model.default_params()
         
-        # Create loss function
-        loss_function = self._create_loss_fn(
-            forcing, observed, loss_fn, warmup_steps
-        )
+        # Create loss function (or use a pre-built one, e.g. from
+        # calibrate_multi_site). A pre-built loss is consumed once so later
+        # single-site calibrate() calls on the same Calibrator are unaffected.
+        if self._loss_fn is not None:
+            loss_function = self._loss_fn
+            self._loss_fn = None
+        else:
+            loss_function = self._create_loss_fn(
+                forcing, observed, loss_fn, warmup_steps
+            )
         
         # Create step function
         step_fn = self._make_step_fn(loss_function, use_bounded_transform)
@@ -679,20 +683,31 @@ class Calibrator:
         if site_weights is None:
             site_weights = [1.0 / n_sites] * n_sites
         
+        # _create_loss_fn only accepts loss-related arguments; the remaining
+        # kwargs (use_bounded_transform, callback, verbose, ...) are forwarded
+        # to calibrate() below.
+        loss_type = kwargs.get('loss_fn', 'kge')
+        warmup_steps = kwargs.get('warmup_steps', 365)
+
+        site_losses = [
+            self._create_loss_fn(forcing, observed, loss_type, warmup_steps)
+            for forcing, observed in zip(forcing_list, observed_list)
+        ]
+
         def multi_site_loss(params: Parameters) -> float:
             total_loss = 0.0
-            for forcing, observed, weight in zip(forcing_list, observed_list, site_weights):
-                loss_fn = self._create_loss_fn(forcing, observed, **kwargs)
+            for loss_fn, weight in zip(site_losses, site_weights):
                 total_loss += weight * loss_fn(params)
             return total_loss
-        
-        # Override the loss function creation
+
+        # calibrate() picks up this pre-built loss instead of building its own.
         self._loss_fn = multi_site_loss
-        
-        # Run calibration with custom loss
+
+        # Run calibration with the custom multi-site loss. forcing/observed are
+        # placeholders (ignored because _loss_fn is set).
         return self.calibrate(
-            forcing=forcing_list[0],  # Placeholder
-            observed=observed_list[0],  # Placeholder
+            forcing=forcing_list[0],
+            observed=observed_list[0],
             **kwargs,
         )
 

@@ -87,6 +87,15 @@ from jfuse.coupled import (
     mae_loss,
 )
 
+# Shared gradient configs and FUSE decision mapping
+from jfuse.configs import (
+    PRMS_GRADIENT_CONFIG,
+    MAX_GRADIENT_CONFIG,
+    FUSE_DECISION_MAP,
+    JFUSE_CONFIGS,
+    build_config_from_decisions,
+)
+
 # I/O utilities
 from jfuse.io.netcdf import (
     load_forcing,
@@ -175,6 +184,12 @@ __all__ = [
     "SACRAMENTO_CONFIG",
     "TOPMODEL_CONFIG",
     "VIC_CONFIG",
+    # Shared gradient configs and FUSE decision mapping
+    "PRMS_GRADIENT_CONFIG",
+    "MAX_GRADIENT_CONFIG",
+    "FUSE_DECISION_MAP",
+    "JFUSE_CONFIGS",
+    "build_config_from_decisions",
     # State
     "State",
     "Flux",
