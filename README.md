@@ -111,7 +111,11 @@ jfuse run \
 
 ## License
 
-MIT License - see LICENSE file for details.
+GNU General Public License v3.0 (GPL-3.0-only) - see [LICENSE](LICENSE) file for details.
+
+jFUSE implements the FUSE model of Clark et al. (2008); the original FUSE
+([NCAR/FUSE](https://github.com/NCAR/FUSE)) is licensed GPL-3.0, and jFUSE is
+distributed under the same license.
 
 ## References
 
