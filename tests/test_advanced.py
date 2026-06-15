@@ -135,6 +135,51 @@ class TestWaterBalance:
         # Allow some error due to smooth approximations
         assert balance_error < 1.0, f"Water balance error: {balance_error}"
 
+    def test_sacramento_free_split_honors_f_base(self):
+        """Sacramento free-water recharge must split by f_base, not 50/50.
+
+        The two parallel free reservoirs have capacities f_base*S2_F_max and
+        (1-f_base)*S2_F_max, so their recharge must follow the same
+        f_base:(1-f_base) ratio.
+        """
+        import equinox as eqx
+        from jfuse.fuse import fuse_step, State, Parameters, Forcing
+        from jfuse import SACRAMENTO_CONFIG
+
+        f_base = 0.25
+        params = Parameters.default(n_hrus=1)
+        # Isolate the split: no baseflow drainage (v_A=v_B=0) and caps large
+        # enough that neither free reservoir clamps over the test window.
+        params = eqx.tree_at(
+            lambda p: (p.f_base, p.v_A, p.v_B, p.S2_FA_max, p.S2_FB_max),
+            params,
+            (jnp.float32(f_base), jnp.float32(0.0), jnp.float32(0.0),
+             jnp.float32(1e6), jnp.float32(1e6)),
+        )
+
+        state = State.default(n_hrus=1)
+        state = eqx.tree_at(
+            lambda s: (s.S2_FA, s.S2_FB), state,
+            (jnp.float32(0.0), jnp.float32(0.0)),
+        )
+
+        forcing = Forcing(
+            precip=jnp.float32(40.0), pet=jnp.float32(0.0), temp=jnp.float32(15.0)
+        )
+
+        # Accumulate recharge over several steps (no drainage, no clamp).
+        for _ in range(15):
+            state, _ = fuse_step(state, forcing, params, SACRAMENTO_CONFIG, 1.0, 1)
+
+        fa = float(state.S2_FA)
+        fb = float(state.S2_FB)
+        assert fa + fb > 0.0, "no free-water recharge accumulated"
+        # Split tracks f_base (~0.25), decisively not the old 50/50. Tolerance
+        # accommodates float32 + smooth-clamp accumulation over the window.
+        assert abs(fa / (fa + fb) - f_base) < 1e-2, (
+            f"split {fa / (fa + fb):.3f} != f_base {f_base}"
+        )
+
     def test_runoff_bounded_by_input(self):
         """Total runoff over time shouldn't wildly exceed input."""
         from jfuse.fuse import FUSEModel, Parameters, PRMS_CONFIG
@@ -410,6 +455,49 @@ class TestCoupledModel:
         assert jnp.all(jnp.isfinite(grads.fuse_params.S1_max))
         # Check routing param gradients
         assert jnp.all(jnp.isfinite(grads.manning_n))
+
+    def test_routing_dt_defaults_to_fuse_step(self):
+        """Daily FUSE coupling must route at the FUSE step interval, not 3600s.
+
+        The router advances one step per inflow row; routing a daily series at
+        a smaller dt (with no sub-stepping) over-attenuates/over-lags the
+        hydrograph. The default routing_dt must therefore equal fuse_dt*86400.
+        """
+        from jfuse.coupled import coupled_simulate
+        from jfuse import PRMS_CONFIG
+        from jfuse.fuse import Parameters
+        from jfuse.routing import create_network_from_topology
+
+        # Long reaches make the dt sensitivity pronounced.
+        n_hrus = 2
+        network = create_network_from_topology(
+            [0, 1], [1, -1], [50000.0, 50000.0], [0.001, 0.001]
+        ).to_arrays()
+        fuse_params = Parameters.default(n_hrus=n_hrus)
+        hru_areas = jnp.ones(n_hrus) * 1e7
+
+        n_days = 30
+        forcing = (
+            jnp.ones((n_days, n_hrus)) * 10.0,
+            jnp.ones((n_days, n_hrus)) * 3.0,
+            jnp.ones((n_days, n_hrus)) * 15.0,
+        )
+
+        def run(routing_dt):
+            out, _, _ = coupled_simulate(
+                forcing, fuse_params, network.manning_n, network, hru_areas,
+                PRMS_CONFIG, fuse_dt=1.0, routing_dt=routing_dt,
+            )
+            return out
+
+        out_default = run(None)
+        out_daily = run(86400.0)
+        out_hourly = run(3600.0)
+
+        # Default resolves to the daily step ...
+        assert jnp.allclose(out_default, out_daily)
+        # ... and is distinct from the previous (buggy) 3600s behavior.
+        assert not jnp.allclose(out_default, out_hourly, atol=1e-4)
 
 
 class TestLongSimulations:

@@ -96,7 +96,7 @@ def coupled_simulate(
     initial_fuse_state: Optional[FUSEState] = None,
     initial_Q: Optional[Array] = None,
     fuse_dt: float = 1.0,
-    routing_dt: float = 3600.0,
+    routing_dt: Optional[float] = None,
     start_doy: int = 1,
 ) -> Tuple[Array, Array, FUSEState]:
     """Run coupled FUSE + routing simulation.
@@ -116,7 +116,11 @@ def coupled_simulate(
         initial_fuse_state: Initial FUSE state (optional)
         initial_Q: Initial discharge [n_reaches] (optional)
         fuse_dt: FUSE timestep in days (default 1)
-        routing_dt: Routing timestep in seconds (default 1 hour)
+        routing_dt: Routing timestep in seconds. Defaults to the FUSE step
+            interval (fuse_dt * 86400) so the router advances in step with the
+            inflow series it is given. Routing a daily inflow series at a
+            smaller dt (e.g. 3600 s) with no sub-stepping over-attenuates and
+            over-lags the hydrograph by fuse_dt*86400 / routing_dt.
         start_doy: Starting day of year
         
     Returns:
@@ -129,6 +133,10 @@ def coupled_simulate(
     n_timesteps = precip.shape[0]
     n_hrus = hru_areas.shape[0]
     n_reaches = network.n_reaches
+
+    # Route in step with the inflow series: one routing step per FUSE timestep.
+    if routing_dt is None:
+        routing_dt = fuse_dt * 86400.0
     
     # Initialize FUSE state
     if initial_fuse_state is None:
@@ -205,15 +213,15 @@ class CoupledModel(eqx.Module):
     fuse_model: FUSEModel
     network: NetworkArrays
     hru_areas: Array
-    routing_dt: float = eqx.field(static=True)
-    
+    routing_dt: Optional[float] = eqx.field(static=True)
+
     def __init__(
         self,
         fuse_config: ModelConfig = None,
         network: NetworkArrays = None,
         hru_areas: Array = None,
         n_hrus: int = 1,
-        routing_dt: float = 3600.0,
+        routing_dt: Optional[float] = None,
     ):
         """Initialize coupled model.
         
@@ -222,7 +230,8 @@ class CoupledModel(eqx.Module):
             network: River network topology
             hru_areas: HRU areas in m²
             n_hrus: Number of HRUs (used if hru_areas not provided)
-            routing_dt: Routing timestep in seconds
+            routing_dt: Routing timestep in seconds. Defaults to None, which
+                routes one step per FUSE day (86400 s); see coupled_simulate.
         """
         if fuse_config is None:
             fuse_config = PRMS_CONFIG

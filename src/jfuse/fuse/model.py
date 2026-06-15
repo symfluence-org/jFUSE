@@ -245,8 +245,14 @@ def fuse_step(
         ) * (to_tension - e2)
         
         dS2_T = to_tension - e2 - overflow_T
-        dS2_FA = (to_free + overflow_T) / 2.0 - qb_A
-        dS2_FB = (to_free + overflow_T) / 2.0 - qb_B
+        # Split free-water recharge in proportion to the two reservoirs'
+        # capacities (S2_FA_max = f_base * S2_F_max, S2_FB_max = (1 - f_base) *
+        # S2_F_max), matching FUSE/SAC-SMA tens2pll. A fixed 50/50 split would
+        # ignore f_base and drive the smaller tank to saturate (and leak via
+        # the storage clamp below).
+        free_inflow = to_free + overflow_T
+        dS2_FA = params.f_base * free_inflow - qb_A
+        dS2_FB = (1.0 - params.f_base) * free_inflow - qb_B
         
         S2_T_new = physics.smooth_clamp(state.S2_T + dS2_T * dt, 0.0, params.S2_T_max)
         S2_FA_new = physics.smooth_clamp(state.S2_FA + dS2_FA * dt, 0.0, params.S2_FA_max)
