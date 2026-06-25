@@ -23,7 +23,6 @@ from .config import (
     PercolationType,
     SurfaceRunoffType,
     EvaporationType,
-    InterflowType,
     PRMS_CONFIG,
 )
 from .state import State, Flux, Parameters, Forcing

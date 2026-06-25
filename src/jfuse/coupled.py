@@ -11,29 +11,26 @@ The coupling handles:
 - Proper gradient flow through both components
 """
 
-from typing import Tuple, Optional, Dict, Any, NamedTuple
+from typing import Tuple, Optional, NamedTuple
 from functools import partial
 import math
 import warnings
 
 import jax
 import jax.numpy as jnp
-from jax import Array, lax
+from jax import Array
 import equinox as eqx
 
 from .fuse import (
     FUSEModel,
     State as FUSEState,
     Parameters as FUSEParameters,
-    Forcing,
     ModelConfig,
     PRMS_CONFIG,
     fuse_simulate,
 )
 from .routing import (
-    MuskingumCungeRouter,
     NetworkArrays,
-    RiverNetwork,
 )
 
 
@@ -209,7 +206,6 @@ def coupled_simulate(
         - final_fuse_state: Final FUSE state
     """
     precip, pet, temp = forcing_series
-    n_timesteps = precip.shape[0]
     n_hrus = hru_areas.shape[0]
     n_reaches = network.n_reaches
 

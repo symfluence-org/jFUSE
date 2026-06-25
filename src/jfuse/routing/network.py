@@ -11,7 +11,7 @@ The network structure supports:
 - Efficient adjacency representation for JAX operations
 """
 
-from typing import List, Dict, Tuple, Optional, NamedTuple, Sequence
+from typing import List, Dict, Optional, NamedTuple, Sequence
 from dataclasses import dataclass
 import jax.numpy as jnp
 from jax import Array

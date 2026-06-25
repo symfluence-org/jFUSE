@@ -10,7 +10,7 @@ References:
     (FUSE). Water Resources Research, 44, W00B02.
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 import jax.numpy as jnp
 from jax import Array
 import equinox as eqx

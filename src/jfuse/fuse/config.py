@@ -15,7 +15,7 @@ References:
 """
 
 from enum import IntEnum
-from typing import NamedTuple, Dict, Optional
+from typing import NamedTuple, Dict
 from pathlib import Path
 import jax.numpy as jnp
 
