@@ -393,8 +393,13 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             # Run simulation - jfuse expects forcing tuple as (precip, pet, temp)
             self.logger.info(f"Running simulation for {len(precip)} timesteps")
 
+            # Glacier (lumped): area-mean glacier fraction for the catchment.
+            glacier_frac, glac_on = self._glacier_for_run(1)
+            model = self._with_glacier(model, glac_on)
+
             forcing_tuple = (precip_jax, pet_jax, temp_jax)
-            runoff, final_state = model.simulate(forcing_tuple, params)
+            runoff, final_state = model.simulate(
+                forcing_tuple, params, glacier_frac=glacier_frac)
 
             # Convert output to numpy
             runoff = np.array(runoff)
@@ -409,6 +414,43 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             import traceback
             self.logger.debug(traceback.format_exc())
             return False
+
+    def _glacier_for_run(self, n_hrus: int):
+        """Load per-HRU glacier fraction for a standalone run.
+
+        Honors JFUSE_ENABLE_GLACIER (default True) and only enables glacier when
+        a glacier fraction is actually present. Returns ``(glacier_frac, enable)``
+        where glacier_frac is a scalar (lumped) or ``[n_hrus]`` array, or
+        ``(None, False)``.
+        """
+        if not bool(self._get_config_value(lambda: None, default=True,
+                                           dict_key='JFUSE_ENABLE_GLACIER')):
+            return None, False
+        try:
+            from jfuse.static_inputs import load_glacier_fraction
+            import jax.numpy as jnp
+            frac = load_glacier_fraction(self.project_dir, self.domain_name, self.logger)
+            if frac is None or float(np.max(frac)) <= 0.0:
+                return None, False
+            frac = np.asarray(frac, dtype='float32')
+            if n_hrus == 1:
+                return jnp.asarray(float(frac.mean())), True
+            if frac.size == n_hrus:
+                return jnp.asarray(frac), True
+            self.logger.warning(
+                "Glacier fraction length %d != %d HRUs; disabling glacier.",
+                frac.size, n_hrus)
+            return None, False
+        except Exception:  # noqa: BLE001 — glacier optional
+            self.logger.debug("Glacier load failed for run", exc_info=True)
+            return None, False
+
+    @staticmethod
+    def _with_glacier(model, enable: bool):
+        """Return ``model`` with the glacier module enabled on its config."""
+        if not enable:
+            return model
+        return FUSEModel(model.config._replace(enable_glacier=True), n_hrus=model.n_hrus)
 
     def _execute_distributed(self) -> bool:
         """Execute jFUSE in distributed mode (per-HRU)."""
@@ -443,6 +485,10 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             else:
                 model = create_fuse_model(config_name, n_hrus=1)
 
+            # Glacier (distributed): per-HRU glacier fraction.
+            glacier_frac, glac_on = self._glacier_for_run(n_hrus)
+            model = self._with_glacier(model, glac_on)
+
             # Run simulation for each HRU
             all_runoff = np.zeros((n_times, n_hrus))
 
@@ -453,7 +499,8 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
                 # jfuse expects forcing tuple as (precip, pet, temp)
                 forcing_tuple = (hru_precip, hru_pet, hru_temp)
-                runoff, _ = model.simulate(forcing_tuple, params)
+                hru_gf = glacier_frac[hru_idx] if glac_on else None
+                runoff, _ = model.simulate(forcing_tuple, params, glacier_frac=hru_gf)
 
                 all_runoff[:, hru_idx] = np.array(runoff)
 

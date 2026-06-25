@@ -154,6 +154,19 @@ class JFUSEParameterManager(BaseParameterManager):
 
         self.jfuse_params = [p.strip() for p in str(jfuse_params_str).split(',') if p.strip()]
 
+        # When the glacier module is enabled, make its parameters calibratable
+        # (they are valid PARAM_NAMES, appended after the core 30). Controlled by
+        # JFUSE_GLACIER_CALIB_PARAMS (default DDF_ice,T_ice,K_glac); skipped
+        # entirely when glacier is off so non-glacier domains keep their param
+        # count. In transfer-function mode each gets its own _a/_b coefficients,
+        # spatially distributing the ice degree-day factor (clean vs debris ice).
+        if bool(self._get_jfuse_cfg('ENABLE_GLACIER', default=False)):
+            glac_str = self._get_jfuse_cfg(
+                'GLACIER_CALIB_PARAMS', default='DDF_ice,T_ice,K_glac')
+            for gp in [p.strip() for p in str(glac_str).split(',') if p.strip()]:
+                if gp not in self.jfuse_params:
+                    self.jfuse_params.append(gp)
+
         # Validate parameters against available bounds
         if HAS_JFUSE:
             self._validate_params()
@@ -175,6 +188,28 @@ class JFUSEParameterManager(BaseParameterManager):
         # Initialize transfer function mode if enabled
         if self._use_transfer_functions:
             self._init_transfer_function_mode(config)
+
+        # Append global lake/reservoir operating-rule multipliers to the
+        # calibration vector when JFUSE_CALIBRATE_LAKES is set, so the optimizer
+        # tunes them alongside the (TF or direct) hydrology parameters. They are
+        # not FUSE Parameters fields — the worker's array_to_params routes them
+        # to CoupledParams.lake_rules. Held in a dedicated list that
+        # _get_parameter_names / _load_parameter_bounds append LAST, forming a
+        # trailing block the worker can split off (works in both TF + direct mode).
+        self._lake_calib_params: List[str] = []
+        if bool(self._get_jfuse_cfg('CALIBRATE_LAKES', default=False)):
+            try:
+                from jfuse.coupled import LAKE_RULE_NAMES, LAKE_RULE_BOUNDS, LAKE_RULE_DEFAULTS
+                for name in LAKE_RULE_NAMES:
+                    self._lake_calib_params.append(name)
+                    self.all_bounds[name] = LAKE_RULE_BOUNDS[name]
+                    self.defaults[name] = LAKE_RULE_DEFAULTS[name]
+                self.calibration_params = list(self.calibration_params) + list(LAKE_RULE_NAMES)
+                self.logger.info(
+                    "Lake operating-rule calibration ON: +%d params %s",
+                    len(LAKE_RULE_NAMES), list(LAKE_RULE_NAMES))
+            except Exception:  # noqa: BLE001 — lake calibration optional
+                self.logger.debug("Could not append lake calibration params", exc_info=True)
 
     def _get_jfuse_cfg(self, bare_key: str, default=None):
         """Get JFUSE config value, handling model_extra {type: value} dicts.
@@ -278,10 +313,15 @@ class JFUSEParameterManager(BaseParameterManager):
     # ========================================================================
 
     def _get_parameter_names(self) -> List[str]:
-        """Return parameter/coefficient names for calibration."""
+        """Return parameter/coefficient names for calibration.
+
+        Lake operating-rule multipliers (when JFUSE_CALIBRATE_LAKES is set) are
+        appended as a trailing block in both TF and direct modes.
+        """
+        lake = list(getattr(self, '_lake_calib_params', []) or [])
         if self._use_transfer_functions and self._tf_config is not None:
-            return self._tf_config.coefficient_names
-        return self.jfuse_params
+            return list(self._tf_config.coefficient_names) + lake
+        return list(self.jfuse_params) + lake
 
     def _load_parameter_bounds(self) -> Dict[str, Dict[str, float]]:
         """Return parameter/coefficient bounds for calibration.
@@ -290,18 +330,23 @@ class JFUSEParameterManager(BaseParameterManager):
         _apply_config_bounds_override to preserve any transform metadata.
         """
         if self._use_transfer_functions and self._tf_config is not None:
-            return {
-                name: {'min': bounds[0], 'max': bounds[1]}
-                for name, bounds in zip(
+            bounds = {
+                name: {'min': bnd[0], 'max': bnd[1]}
+                for name, bnd in zip(
                     self._tf_config.coefficient_names,
                     self._tf_config.coefficient_bounds,
                 )
             }
-        bounds = {
-            name: {'min': self.all_bounds[name][0], 'max': self.all_bounds[name][1]}
-            for name in self.jfuse_params
-            if name in self.all_bounds
-        }
+        else:
+            bounds = {
+                name: {'min': self.all_bounds[name][0], 'max': self.all_bounds[name][1]}
+                for name in self.jfuse_params
+                if name in self.all_bounds
+            }
+        # Lake operating-rule multipliers (trailing block) in both modes.
+        for name in getattr(self, '_lake_calib_params', []) or []:
+            if name in self.all_bounds:
+                bounds[name] = {'min': self.all_bounds[name][0], 'max': self.all_bounds[name][1]}
         # Apply config overrides with transform preservation
         config_bounds = self._get_config_value(lambda: None, default={}, dict_key='JFUSE_PARAM_BOUNDS')
         if config_bounds:
@@ -322,9 +367,9 @@ class JFUSEParameterManager(BaseParameterManager):
         if initial_params == 'default':
             self.logger.debug("Using standard jFUSE defaults for initial parameters")
             # In TF mode, return coefficient defaults (S1_max_a, S1_max_b, ...)
-            if self._use_transfer_functions and self._tf_config is not None:
-                return {p: self.defaults.get(p, 0.0) for p in self.calibration_params}
-            return {p: self.defaults.get(p, 0.0) for p in self.jfuse_params}
+            # Use the full calibration name list (includes appended lake
+            # operating-rule multipliers) so their neutral defaults are seeded.
+            return {p: self.defaults.get(p, 0.0) for p in self._get_parameter_names()}
 
         # Parse string-based initial params if provided
         if isinstance(initial_params, str) and initial_params != 'default':

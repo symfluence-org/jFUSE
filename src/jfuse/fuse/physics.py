@@ -165,8 +165,88 @@ def compute_snow(
     
     # Update SWE
     SWE_new = smooth_max(SWE + snow - melt, 0.0, 0.001)
-    
+
     return rain, melt, SWE_new
+
+
+# =============================================================================
+# GLACIER MODULE
+# =============================================================================
+
+def compute_glacier(
+    temp: Array,
+    SWE: Array,
+    rain: Array,
+    snowmelt: Array,
+    S_glac: Array,
+    ICE: Array,
+    DDF_ice: Array,
+    T_ice: Array,
+    K_glac: Array,
+    dt: float = 1.0,
+    swe_bare_thresh: float = 5.0,
+    exposure_width: float = 1.0,
+) -> Tuple[Array, Array, Array, Array]:
+    """Temperature-index glacier melt + fast glacier reservoir (per unit
+    glacierized area).
+
+    Physical picture (HBV-glacier / GSM-SOCONT style, fixed geometry):
+
+    * Seasonal snow on the glacier melts first — that is already handled by the
+      snow module via ``SWE``. Once the snowpack is exhausted the underlying ice
+      is *exposed* and melts at the ice degree-day factor ``DDF_ice``, which is
+      larger than the snow factor (lower ice albedo).
+    * All liquid water generated on the glacier — rain + snowmelt + ice melt —
+      drains through a single fast linear reservoir ``S_glac`` rather than the
+      soil column, reproducing the rapid, well-buffered response of glacier-fed
+      rivers (the buffering that keeps such rivers flowing through dry summers).
+
+    The ice store ``ICE`` is tracked so the water balance closes and optional
+    multi-decade thinning can be modelled; initialised large it is effectively
+    inexhaustible over a calibration horizon (fixed-geometry assumption).
+
+    All water fluxes are depths per unit area (mm/day); ``S_glac``/``ICE`` are
+    storages (mm w.e.). The caller area-weights ``q_glacier`` by the HRU's
+    glacier fraction. Everything is smooth/AD-safe so ``DDF_ice``, ``T_ice`` and
+    ``K_glac`` calibrate by gradient like any other parameter.
+
+    Args:
+        temp: Air temperature (°C).
+        SWE: Snow water equivalent after the snow update (mm) — controls ice
+            exposure.
+        rain: Rainfall reaching the surface this step (mm/day).
+        snowmelt: Snowmelt this step (mm/day).
+        S_glac: Current glacier-reservoir storage (mm).
+        ICE: Current ice store (mm w.e.).
+        DDF_ice: Ice degree-day melt factor (mm/°C/day).
+        T_ice: Ice-melt threshold temperature (°C).
+        K_glac: Glacier-reservoir release coefficient (1/day).
+        dt: Timestep (days).
+        swe_bare_thresh: SWE (mm) below which ice is treated as exposed.
+        exposure_width: Smoothing width (mm) of the snow-cover/bare-ice
+            transition.
+
+    Returns:
+        Tuple ``(q_glacier, S_glac_new, ICE_new, ice_melt)`` — glacier-reservoir
+        release (mm/day), updated reservoir storage, updated ice store and the
+        ice melt this step (mm/day).
+    """
+    # Fraction of the glacier that is snow-free (ice exposed): ~1 when SWE is
+    # near zero, ~0 once a seasonal snowpack has built up.
+    exposure = smooth_sigmoid(swe_bare_thresh - SWE, exposure_width)
+
+    # Degree-day ice melt, only on exposed ice and limited by available ice.
+    melt_potential = DDF_ice * smooth_max(temp - T_ice, 0.0, 0.1) * exposure
+    ice_melt = smooth_min(melt_potential, smooth_max(ICE, 0.0, 0.01), 0.01)
+    ICE_new = smooth_max(ICE - ice_melt * dt, 0.0, 0.01)
+
+    # All liquid water on the glacier feeds the fast reservoir; release is a
+    # linear function of storage.
+    glacier_input = rain + snowmelt + ice_melt
+    q_glacier = K_glac * smooth_max(S_glac, 0.0, 0.01)
+    S_glac_new = smooth_max(S_glac + (glacier_input - q_glacier) * dt, 0.0, 0.01)
+
+    return q_glacier, S_glac_new, ICE_new, ice_melt
 
 
 # =============================================================================

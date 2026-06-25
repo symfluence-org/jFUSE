@@ -212,6 +212,7 @@ class JFUSEWorker(InMemoryModelWorker):
         self._hru_areas = None
         self._forcing_tuple = None
         self._network_arrays = None
+        self._glacier_frac = None  # Per-GRU glacier fraction (set in forcing load)
 
         # Distributed mode output
         self._last_outlet_q = None
@@ -234,6 +235,73 @@ class JFUSEWorker(InMemoryModelWorker):
         self._tf_param_indices = None
         self._tf_lower_bounds = None
         self._tf_upper_bounds = None
+
+    def _load_glacier_frac_aligned(self, data_dir, domain_name, gru_ids, gru_subset, n_expected):
+        """Load per-GRU glacier fraction aligned to the forcing GRUs.
+
+        Preferred path keys by ``GRU_ID`` (robust to GRU-set/order differences):
+        an RGI ∩ river-basins overlay gives ``{GRU_ID: frac}`` which is looked up
+        for each forcing GRU's ``gru_id`` (0 where no glacier). Falls back to the
+        legacy row-ordered shapefile when ids are unavailable. Returns a ``jnp``
+        array ``[n_expected]`` or ``None``.
+        """
+        import jax.numpy as jnp
+        project_dir = Path(data_dir) / f"domain_{domain_name}"
+        try:
+            # --- Preferred: GRU_ID-keyed overlay ---
+            if gru_ids is not None:
+                from jfuse.static_inputs import glacier_fraction_by_gru_id
+                gmap = glacier_fraction_by_gru_id(project_dir, domain_name, self.logger)
+                if gmap:
+                    frac = np.array([gmap.get(int(g), 0.0) for g in gru_ids], dtype="float32")
+                    if frac.size == n_expected:
+                        self.logger.info(
+                            "Glacier fraction aligned by GRU_ID: %d glacierized of %d GRUs "
+                            "(mean=%.4f).", int((frac > 0.05).sum()), frac.size, float(frac.mean()))
+                        return jnp.asarray(frac)
+
+            # --- Fallback: legacy row-ordered fraction ---
+            from jfuse.static_inputs import load_glacier_fraction
+            frac = load_glacier_fraction(project_dir, domain_name, self.logger)
+            if frac is None:
+                return None
+            frac = np.asarray(frac)
+            if gru_subset is not None:
+                idx = np.asarray(gru_subset, dtype=int)
+                if idx.size and int(idx.max()) >= frac.size:
+                    self.logger.warning(
+                        "Glacier fraction (%d GRUs) shorter than max GRU index %d; "
+                        "disabling glacier.", frac.size, int(idx.max()))
+                    return None
+                frac = frac[idx]
+            if frac.size != n_expected:
+                self.logger.warning(
+                    "Glacier fraction length %d != %d forcing GRUs; disabling glacier.",
+                    frac.size, n_expected)
+                return None
+            return jnp.asarray(frac, dtype=jnp.float32)
+        except Exception:  # noqa: BLE001 — glacier is optional, never block calibration
+            self.logger.debug("Glacier fraction load failed", exc_info=True)
+            return None
+
+    def _load_lumped_glacier_frac(self):
+        """Area-mean catchment glacier fraction (scalar) for lumped mode, or
+        None. Honors JFUSE_ENABLE_GLACIER (default True)."""
+        if not bool(self._get_jfuse_config('enable_glacier', True)):
+            return None
+        try:
+            from jfuse.static_inputs import load_glacier_fraction
+            domain_name = self._cfg('DOMAIN_NAME', 'domain')
+            data_dir = self._cfg('SYMFLUENCE_DATA_DIR', self._cfg('ROOT_PATH', '.'))
+            frac = load_glacier_fraction(
+                Path(data_dir) / f"domain_{domain_name}", domain_name, self.logger)
+            if frac is None or float(np.max(frac)) <= 0.0:
+                return None
+            import jax.numpy as jnp
+            return jnp.asarray(float(np.mean(frac)), dtype=jnp.float32)
+        except Exception:  # noqa: BLE001
+            self.logger.debug("Lumped glacier load failed", exc_info=True)
+            return None
 
     def _get_jfuse_config(self, bare_key: str, default: Any = None) -> Any:
         """Get JFUSE config value, handling both flat and model_extra storage.
@@ -324,9 +392,11 @@ class JFUSEWorker(InMemoryModelWorker):
             self._last_outlet_q = outlet_q_arr
             return runoff_arr
         else:
+            # Lumped path: glacier_frac (scalar) is passed through when present.
             runoff, _ = self._model.simulate(
                 self._forcing_tuple, params_obj,
-                initial_state=self._initial_state)
+                initial_state=self._initial_state,
+                glacier_frac=self._glacier_frac)
             runoff_arr = np.array(runoff) if HAS_JAX else runoff
             self._last_outlet_q = None
             return runoff_arr
@@ -380,6 +450,16 @@ class JFUSEWorker(InMemoryModelWorker):
         else:
             self._model = create_fuse_model(self.model_config_name, n_hrus=1)
             self.logger.debug(f"Initialized lumped FUSEModel with config: {self.model_config_name}")
+
+        # Lumped glacier: area-mean catchment glacier fraction (scalar). Enables
+        # the glacier module on the lumped config when present + requested.
+        self._glacier_frac = self._load_lumped_glacier_frac()
+        if self._glacier_frac is not None:
+            cfg = self._model.config._replace(enable_glacier=True)
+            self._model = FUSEModel(cfg, n_hrus=1)
+            self.logger.info("Glacier module ENABLED (lumped, frac=%.3f).",
+                             float(self._glacier_frac))
+
         self._default_params = Parameters.default(n_hrus=1)
 
         # Set initial state based on config
@@ -447,10 +527,41 @@ class JFUSEWorker(InMemoryModelWorker):
         else:
             fuse_config = None
 
+        # Enable the glacier module when requested AND a glacier fraction is
+        # present (config flag JFUSE_ENABLE_GLACIER, default True). Glacier melt
+        # then area-weights the runoff of glacierized GRUs.
+        glacier_frac = self._glacier_frac
+        want_glacier = bool(self._get_jfuse_config('enable_glacier', True))
+        has_glacier = glacier_frac is not None and float(jnp.max(glacier_frac)) > 0.0
+        enable_glacier = want_glacier and has_glacier
+        if enable_glacier:
+            if fuse_config is None:
+                from jfuse.fuse.config import PRMS_CONFIG
+                fuse_config = PRMS_CONFIG
+            fuse_config = fuse_config._replace(enable_glacier=True)
+            self.logger.info(
+                "Glacier module ENABLED (%d glacierized GRUs, mean frac=%.3f).",
+                int((glacier_frac > 0).sum()), float(jnp.mean(glacier_frac)))
+        else:
+            glacier_frac = None  # don't pass it if not enabling
+
         # Convert network to arrays if it's a RiverNetwork object
         network_arrays = (self._network.to_arrays()
                          if hasattr(self._network, 'to_arrays')
                          else self._network)
+
+        # Stamp HydroLAKES lake/reservoir attributes onto reaches (config flag
+        # JFUSE_USE_LAKES, default True). No-op when no HydroLAKES data exists.
+        if bool(self._get_jfuse_config('use_lakes', True)):
+            try:
+                from jfuse.static_inputs import classify_lakes_onto_network
+                segid = self._cfg('RIVER_NETWORK_SHP_SEGID', 'LINKNO')
+                network_arrays = classify_lakes_onto_network(
+                    network_arrays, Path(data_dir) / f"domain_{domain_name}",
+                    domain_name, segid_field=segid, logger=self.logger)
+            except Exception:  # noqa: BLE001 — lakes optional
+                self.logger.debug("Lake classification skipped", exc_info=True)
+
         # Store network arrays for multi-gauge reach ID mapping
         self._network_arrays = network_arrays
 
@@ -462,6 +573,7 @@ class JFUSEWorker(InMemoryModelWorker):
             n_hrus=len(self._hru_areas),
             routing_substep_method=self.routing_substep_method,
             routing_max_substeps=self.routing_max_substeps,
+            glacier_frac=glacier_frac,
         )
         self._model = self._coupled_model.fuse_model
         self._default_params = self._coupled_model.default_params()
@@ -680,6 +792,10 @@ class JFUSEWorker(InMemoryModelWorker):
             mapping_file = (data_dir / f"domain_{domain_name}" /
                            'settings' / 'mizuRoute' / 'fuse_to_routing_mapping.csv')
 
+        # Track the GRU subset + per-GRU ids applied to the forcing so static
+        # per-GRU inputs (e.g. glacier fraction) can be aligned identically.
+        gru_subset = None
+        gru_ids = None
         if Path(mapping_file).exists():
             mapping_df = pd.read_csv(mapping_file)
             # Filter to non-coastal GRUs
@@ -689,6 +805,9 @@ class JFUSEWorker(InMemoryModelWorker):
             precip = precip[:, non_coastal_indices]
             temp = temp[:, non_coastal_indices]
             pet = pet[:, non_coastal_indices]
+            gru_subset = non_coastal_indices
+            if 'gru_id' in non_coastal_df.columns:
+                gru_ids = np.asarray(non_coastal_df['gru_id'].values, dtype=int)
             self.logger.info(
                 f"Filtered to {n_non_coastal} non-coastal GRUs "
                 f"(from {ds.sizes.get('longitude', '?')} total)"
@@ -700,6 +819,7 @@ class JFUSEWorker(InMemoryModelWorker):
                 precip = precip[:, :n_non_coastal]
                 temp = temp[:, :n_non_coastal]
                 pet = pet[:, :n_non_coastal]
+                gru_subset = np.arange(n_non_coastal)
                 self.logger.info(
                     f"Using first {n_non_coastal} GRUs as non-coastal (no mapping file)"
                 )
@@ -709,6 +829,12 @@ class JFUSEWorker(InMemoryModelWorker):
             self._time_index = pd.to_datetime(ds.time.values)
 
         ds.close()
+
+        # Load per-GRU glacier fraction (aligned by GRU_ID to the forcing GRUs).
+        self._glacier_frac = self._load_glacier_frac_aligned(
+            data_dir, domain_name, gru_ids=gru_ids, gru_subset=gru_subset,
+            n_expected=int(precip.shape[1]),
+        )
 
         # Store as forcing dict preserving 2D shape
         self._forcing = {
@@ -1024,11 +1150,13 @@ class JFUSEWorker(InMemoryModelWorker):
 
                 def loss_fn(val, pn=param_name, _default_params=default_params,
                             _fuse_model=fuse_model, _forcing_tuple=forcing_tuple,
-                            _init_state=init_state, _warmup=warmup, _obs=obs):
+                            _init_state=init_state, _warmup=warmup, _obs=obs,
+                            _glacier_frac=self._glacier_frac):
                     params = _default_params
                     params = eqx.tree_at(lambda p, n=pn: getattr(p, n), params, val)
                     runoff, _ = _fuse_model.simulate(
-                        _forcing_tuple, params, initial_state=_init_state)
+                        _forcing_tuple, params, initial_state=_init_state,
+                        glacier_frac=_glacier_frac)
                     sim = runoff[_warmup:]
                     obs_aligned = _obs[:len(sim)]
                     return kge_loss(sim[:len(obs_aligned)], obs_aligned)
@@ -1066,17 +1194,33 @@ class JFUSEWorker(InMemoryModelWorker):
         default_params = self._default_params
         is_distributed = self._is_distributed
         n_hrus = self.n_hrus
+        from jfuse.coupled import LAKE_RULE_NAMES
+        lake_set = set(LAKE_RULE_NAMES)
+        # Indices of any lake operating-rule multipliers in the calibration vector
+        # (present when JFUSE_CALIBRATE_LAKES appended them in the param manager).
+        lake_idx = {name: i for i, name in enumerate(param_names) if name in lake_set}
 
         def array_to_params(arr):
             p = default_params
             if is_distributed:
                 fuse_p = p.fuse_params
                 for i, name in enumerate(param_names):
+                    if name in lake_set:
+                        continue
                     if hasattr(fuse_p, name):
                         fuse_p = eqx.tree_at(
                             lambda x, n=name: getattr(x, n), fuse_p, jnp.ones(n_hrus) * arr[i]  # type: ignore[misc]
                         )
                 p = eqx.tree_at(lambda x: x.fuse_params, p, fuse_p)  # type: ignore[misc]
+                # Global lake operating-rule multipliers -> CoupledParams.lake_rules.
+                if lake_idx:
+                    from jfuse.coupled import LakeRuleParams
+                    p = p._replace(lake_rules=LakeRuleParams(
+                        arr[lake_idx['LAKE_Q_REF_MULT']],
+                        arr[lake_idx['LAKE_Q_MIN_FRAC']],
+                        arr[lake_idx['LAKE_EXP']],
+                        arr[lake_idx['LAKE_SPILL_MULT']],
+                    ))
             else:
                 for i, name in enumerate(param_names):
                     if hasattr(p, name):
@@ -1109,11 +1253,18 @@ class JFUSEWorker(InMemoryModelWorker):
         lower_bounds = self._tf_lower_bounds
         upper_bounds = self._tf_upper_bounds
         n_grus = self._tf_config.n_grus
+        from jfuse.coupled import LAKE_RULE_NAMES
+        lake_set = set(LAKE_RULE_NAMES)
+        # Lake multipliers are a trailing block after the transfer-function
+        # coefficients (when JFUSE_CALIBRATE_LAKES appended them).
+        lake_idx = {n: i for i, n in enumerate(coeff_names) if n in lake_set}
+        n_tf = len(coeff_names) - len(lake_idx)
 
         def array_to_params(coeff_array):
-            # Apply transfer functions: (28,) -> (n_grus, 30)
+            tf_part = coeff_array[:n_tf] if lake_idx else coeff_array
+            # Apply transfer functions: (n_tf,) -> (n_grus, NUM_PARAMETERS)
             full_params_2d = apply_transfer_functions(
-                coeff_array, attr_matrix, default_full_params,
+                tf_part, attr_matrix, default_full_params,
                 param_indices, lower_bounds, upper_bounds, n_grus,
             )
 
@@ -1126,6 +1277,14 @@ class JFUSEWorker(InMemoryModelWorker):
             p = eqx.tree_at(
                 lambda x: x.fuse_params, default_coupled_params, fuse_params
             )
+            if lake_idx:
+                from jfuse.coupled import LakeRuleParams
+                p = p._replace(lake_rules=LakeRuleParams(
+                    coeff_array[lake_idx['LAKE_Q_REF_MULT']],
+                    coeff_array[lake_idx['LAKE_Q_MIN_FRAC']],
+                    coeff_array[lake_idx['LAKE_EXP']],
+                    coeff_array[lake_idx['LAKE_SPILL_MULT']],
+                ))
             return p
 
         return array_to_params
@@ -1142,6 +1301,7 @@ class JFUSEWorker(InMemoryModelWorker):
         coupled_model = self._coupled_model
         fuse_model = self._model
         initial_state = self._initial_state
+        glacier_frac = self._glacier_frac  # lumped path; distributed carries it on coupled_model
         has_multi_gauge = self._gauge_obs is not None and self._gauge_reach_indices is not None
         gauge_obs = self._gauge_obs
         gauge_indices = self._gauge_reach_indices
@@ -1168,9 +1328,10 @@ class JFUSEWorker(InMemoryModelWorker):
                     forcing_tuple, params_obj, initial_state=initial_state)
                 sim_eval = outlet_q[warmup:]
             else:
-                # Lumped path
+                # Lumped path (glacier_frac scalar threaded when present)
                 runoff, _ = fuse_model.simulate(
-                    forcing_tuple, params_obj, initial_state=initial_state)
+                    forcing_tuple, params_obj, initial_state=initial_state,
+                    glacier_frac=glacier_frac)
                 sim_eval = runoff[warmup:]
 
             assert obs is not None, "Observations required for single-gauge loss"

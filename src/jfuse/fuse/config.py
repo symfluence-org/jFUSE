@@ -192,7 +192,8 @@ class ModelConfig(NamedTuple):
     snow: SnowType = SnowType.TEMP_INDEX
     routing: RoutingType = RoutingType.NONE
     rainfall_error: RainfallErrorType = RainfallErrorType.ADDITIVE
-    
+    enable_glacier: bool = False
+
     @property
     def enable_snow(self) -> bool:
         """Whether snow module is enabled."""

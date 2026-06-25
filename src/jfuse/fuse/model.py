@@ -41,12 +41,13 @@ def fuse_step(
     config: ModelConfig,
     dt: float = 1.0,
     day_of_year: int = 1,
+    glacier_frac: Optional[Array] = None,
 ) -> Tuple[State, Flux]:
     """Compute one timestep of the FUSE model.
-    
+
     This is the core model computation that advances state by one timestep.
     All physics are computed using smooth differentiable approximations.
-    
+
     Args:
         state: Current model state
         forcing: Meteorological forcing for this timestep
@@ -54,7 +55,13 @@ def fuse_step(
         config: Model configuration
         dt: Timestep in days (default 1.0)
         day_of_year: Day of year for seasonal snow melt (1-365)
-        
+        glacier_frac: Per-HRU glacierized fraction in [0, 1]. When
+            ``config.enable_glacier`` is set and this is provided, each HRU's
+            runoff is area-weighted between the normal soil column
+            ``(1 - glacier_frac)`` and a temperature-index glacier component
+            ``glacier_frac`` (see :func:`physics.compute_glacier`). ``None`` (or
+            a disabled config) reproduces the glacier-free model exactly.
+
     Returns:
         Tuple of (new_state, fluxes)
     """
@@ -259,6 +266,31 @@ def fuse_step(
         S2_FB_new = physics.smooth_clamp(state.S2_FB + dS2_FB * dt, 0.0, params.S2_FB_max)
         S2_new = S2_T_new + S2_FA_new + S2_FB_new
     
+    # Soil-column ("land") runoff for this HRU.
+    q_total = qsx + qif + qb
+
+    # =========================================================================
+    # GLACIER MODULE (area-weighted)
+    # =========================================================================
+    # On the glacierized fraction, liquid water (rain + snowmelt + ice melt)
+    # bypasses the soil column and drains through a fast glacier reservoir. The
+    # HRU runoff is the area-weighted blend of the land and glacier components.
+    if config.enable_glacier and glacier_frac is not None:
+        q_glac, S_glac_new, ICE_new, _ice_melt = physics.compute_glacier(
+            forcing.temp, SWE_new, rain, melt,
+            state.S_glac, state.ICE,
+            params.DDF_ice, params.T_ice, params.K_glac,
+            dt=dt,
+        )
+        # Hard clip: glacier_frac is a static attribute, not a differentiated
+        # quantity, so a smooth clamp would leak a small glacier contribution
+        # into genuinely glacier-free HRUs (fg must be exactly 0 there).
+        fg = jnp.clip(glacier_frac, 0.0, 1.0)
+        q_total = (1.0 - fg) * q_total + fg * q_glac
+    else:
+        ICE_new = state.ICE
+        S_glac_new = state.S_glac
+
     # =========================================================================
     # BUILD OUTPUT
     # =========================================================================
@@ -275,10 +307,10 @@ def fuse_step(
         S2_FA=S2_FA_new.astype(dtype),
         S2_FB=S2_FB_new.astype(dtype),
         SWE=SWE_new.astype(dtype),
+        ICE=ICE_new.astype(dtype),
+        S_glac=S_glac_new.astype(dtype),
     )
-    
-    q_total = qsx + qif + qb
-    
+
     flux = Flux(
         rain=rain,
         melt=melt,
@@ -307,6 +339,8 @@ def fuse_simulate(
     config: ModelConfig,
     dt: float = 1.0,
     start_doy: int = 1,
+    glacier_frac: Optional[Array] = None,
+    remat_scan: bool = True,
 ) -> Tuple[Array, Array]:
     """Run FUSE simulation over a time series.
     
@@ -337,13 +371,17 @@ def fuse_simulate(
         initial_state = jax.tree.map(
             lambda x: jnp.broadcast_to(x, hru_shape), initial_state
         )
+        if glacier_frac is not None:
+            glacier_frac = jnp.broadcast_to(jnp.asarray(glacier_frac), hru_shape)
 
     def scan_fn(carry, inputs):
         state, doy = carry
         p, pe, t = inputs
-        
+
         forcing = Forcing(precip=p, pet=pe, temp=t)
-        new_state, flux = fuse_step(state, forcing, params, config, dt, doy)
+        new_state, flux = fuse_step(
+            state, forcing, params, config, dt, doy, glacier_frac
+        )
 
         # Advance day of year with proper cycling (1-365 or 1-366 for leap years)
         # Wrap at 366 to handle both cases; seasonal calculations use /365.0
@@ -351,9 +389,17 @@ def fuse_simulate(
 
         return (new_state, new_doy), flux.q_total
 
+    # Gradient checkpoint the per-step body so reverse-mode autodiff recomputes
+    # each step's internals from the saved carry instead of storing all
+    # intermediate activations across the full scan. This bounds backward-pass
+    # memory (O(carry) not O(n_steps × activations)) — essential for long
+    # national rollouts (thousands of steps × thousands of GRUs) — at the cost
+    # of ~one extra forward recompute.
+    scan_body = jax.checkpoint(scan_fn) if remat_scan else scan_fn
+
     # Run simulation
     (final_state, _), runoff = lax.scan(
-        scan_fn,
+        scan_body,
         (initial_state, start_doy),
         (precip, pet, temp),
     )
@@ -407,10 +453,13 @@ class FUSEModel(eqx.Module):
         params: Parameters,
         dt: float = 1.0,
         day_of_year: int = 1,
+        glacier_frac: Optional[Array] = None,
     ) -> Tuple[State, Flux]:
         """Run single timestep."""
-        return fuse_step(state, forcing, params, self.config, dt, day_of_year)
-    
+        return fuse_step(
+            state, forcing, params, self.config, dt, day_of_year, glacier_frac
+        )
+
     def simulate(
         self,
         forcing_series: Tuple[Array, Array, Array],
@@ -418,24 +467,27 @@ class FUSEModel(eqx.Module):
         initial_state: State = None,
         dt: float = 1.0,
         start_doy: int = 1,
+        glacier_frac: Optional[Array] = None,
     ) -> Tuple[Array, State]:
         """Run full simulation.
-        
+
         Args:
             forcing_series: Tuple of (precip, pet, temp) arrays
             params: Model parameters
             initial_state: Initial state (defaults to default_state())
             dt: Timestep in days
             start_doy: Starting day of year
-            
+            glacier_frac: Optional per-HRU glacier fraction (see ``fuse_step``).
+
         Returns:
             Tuple of (runoff array, final state)
         """
         if initial_state is None:
             initial_state = self.default_state()
-        
+
         return fuse_simulate(
-            forcing_series, initial_state, params, self.config, dt, start_doy
+            forcing_series, initial_state, params, self.config, dt, start_doy,
+            glacier_frac,
         )
 
 

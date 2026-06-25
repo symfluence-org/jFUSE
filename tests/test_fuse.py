@@ -32,7 +32,8 @@ class TestState:
 
         state = State.default(n_hrus=1)
         arr = state.to_array()
-        assert arr.shape == (10,)  # 10 state variables
+        # 10 soil/snow stores + 2 glacier states (ICE, S_glac)
+        assert arr.shape == (12,)
 
     def test_state_roundtrip(self):
         """Test state array roundtrip."""
