@@ -12,7 +12,7 @@ from .parameter_manager import JFUSEParameterManager, get_jfuse_calibration_boun
 from .worker import JFUSEWorker
 
 __all__ = [
-    'JFUSEWorker',
-    'JFUSEParameterManager',
-    'get_jfuse_calibration_bounds',
+    "JFUSEWorker",
+    "JFUSEParameterManager",
+    "get_jfuse_calibration_bounds",
 ]

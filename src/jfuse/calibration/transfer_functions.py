@@ -23,6 +23,7 @@ import numpy as np
 try:
     import jax.numpy as jnp
     from jax import Array
+
     HAS_JAX = True
 except ImportError:
     HAS_JAX = False
@@ -36,23 +37,23 @@ from jfuse.fuse.state import NUM_PARAMETERS, PARAM_BOUNDS, PARAM_NAMES
 # Maps each calibrated jFUSE parameter to its driving catchment attribute.
 # Attributes are normalized to [0, 1] before use.
 PARAM_ATTR_MAP: Dict[str, str] = {
-    'S1_max':      'precip_mm_yr',   # Upper storage scales with wetness
-    'S2_max':      'precip_mm_yr',   # Lower storage scales with wetness
-    'ku':          'aridity',        # Drainage rate varies with water availability
-    'ki':          'aridity',        # Interflow varies with aridity
-    'ks':          'aridity',        # Baseflow varies with aridity
-    'n':           'aridity',        # TOPMODEL decay varies with climate
-    'Ac_max':      'precip_mm_yr',   # Saturated area fraction scales with wetness
-    'b':           'precip_mm_yr',   # VIC parameter scales with precipitation
-    'f_rchr':      'aridity',        # Recharge fraction relates to climate
-    'T_rain':      'elev_m',         # Rain/snow threshold varies with elevation
-    'T_melt':      'elev_m',         # Melt threshold varies with elevation
-    'MFMAX':       'temp_C',         # Max melt factor varies with temperature
-    'MFMIN':       'snow_frac',      # Min melt factor varies with snow prevalence
-    'smooth_frac': 'constant',       # Numerical smoothing — no spatial variation
+    "S1_max": "precip_mm_yr",  # Upper storage scales with wetness
+    "S2_max": "precip_mm_yr",  # Lower storage scales with wetness
+    "ku": "aridity",  # Drainage rate varies with water availability
+    "ki": "aridity",  # Interflow varies with aridity
+    "ks": "aridity",  # Baseflow varies with aridity
+    "n": "aridity",  # TOPMODEL decay varies with climate
+    "Ac_max": "precip_mm_yr",  # Saturated area fraction scales with wetness
+    "b": "precip_mm_yr",  # VIC parameter scales with precipitation
+    "f_rchr": "aridity",  # Recharge fraction relates to climate
+    "T_rain": "elev_m",  # Rain/snow threshold varies with elevation
+    "T_melt": "elev_m",  # Melt threshold varies with elevation
+    "MFMAX": "temp_C",  # Max melt factor varies with temperature
+    "MFMIN": "snow_frac",  # Min melt factor varies with snow prevalence
+    "smooth_frac": "constant",  # Numerical smoothing — no spatial variation
     # Glacier: ice degree-day factor varies with elevation (lower, warmer,
     # dirtier termini melt faster than high clean accumulation zones).
-    'DDF_ice':     'elev_m',
+    "DDF_ice": "elev_m",
 }
 
 # Default calibrated parameter list (matches existing JFUSE_PARAMS_TO_CALIBRATE)
@@ -65,6 +66,7 @@ DEFAULT_B_BOUNDS = (-5.0, 5.0)
 # ============================================================================
 # Configuration class (setup-time, NumPy)
 # ============================================================================
+
 
 class JaxTransferFunctionConfig:
     """Setup-time configuration for JAX transfer functions.
@@ -98,20 +100,21 @@ class JaxTransferFunctionConfig:
 
         # Load and filter attributes
         import pandas as pd
+
         attrs_df = pd.read_csv(attributes_path)
         self.logger.info(f"Loaded {len(attrs_df)} GRU attributes from {attributes_path}")
 
         if non_coastal_indices is not None:
             attrs_df = attrs_df.iloc[non_coastal_indices].reset_index(drop=True)
-        elif 'is_coastal' in attrs_df.columns:
-            attrs_df = attrs_df[attrs_df['is_coastal'] == 0].reset_index(drop=True)
+        elif "is_coastal" in attrs_df.columns:
+            attrs_df = attrs_df[attrs_df["is_coastal"] == 0].reset_index(drop=True)
 
         self.n_grus = len(attrs_df)
         self.logger.info(f"Using {self.n_grus} non-coastal GRUs")
 
         # Normalize each attribute column to [0, 1]
         self._attr_stats: Dict[str, Tuple[float, float]] = {}
-        attr_cols = ['elev_m', 'precip_mm_yr', 'temp_C', 'aridity', 'snow_frac']
+        attr_cols = ["elev_m", "precip_mm_yr", "temp_C", "aridity", "snow_frac"]
         for col in attr_cols:
             if col in attrs_df.columns:
                 mn = float(attrs_df[col].min())
@@ -119,21 +122,21 @@ class JaxTransferFunctionConfig:
                 rng = mx - mn
                 self._attr_stats[col] = (mn, mx)
                 if rng > 0:
-                    attrs_df[f'{col}_norm'] = (attrs_df[col] - mn) / rng
+                    attrs_df[f"{col}_norm"] = (attrs_df[col] - mn) / rng
                 else:
-                    attrs_df[f'{col}_norm'] = 0.5
+                    attrs_df[f"{col}_norm"] = 0.5
 
         # Build attribute matrix (n_grus, n_calibrated_params)
         # Each column is the normalized attribute for the corresponding param.
         n_params = len(self.calibrated_params)
         attr_matrix = np.zeros((self.n_grus, n_params), dtype=np.float32)
         for i, pname in enumerate(self.calibrated_params):
-            attr_name = PARAM_ATTR_MAP.get(pname, 'constant')
-            if attr_name == 'constant':
+            attr_name = PARAM_ATTR_MAP.get(pname, "constant")
+            if attr_name == "constant":
                 # No spatial variation — column of zeros so b*0 = 0
                 attr_matrix[:, i] = 0.0
             else:
-                norm_col = f'{attr_name}_norm'
+                norm_col = f"{attr_name}_norm"
                 if norm_col in attrs_df.columns:
                     attr_matrix[:, i] = attrs_df[norm_col].values.astype(np.float32)
                 else:
@@ -159,9 +162,9 @@ class JaxTransferFunctionConfig:
         for pname in self.calibrated_params:
             a_lo, a_hi = PARAM_BOUNDS[pname]
             prange = (a_hi - a_lo) * b_frac
-            self._coeff_names.append(f'{pname}_a')
+            self._coeff_names.append(f"{pname}_a")
             self._coeff_bounds.append((a_lo, a_hi))
-            self._coeff_names.append(f'{pname}_b')
+            self._coeff_names.append(f"{pname}_b")
             self._coeff_bounds.append((-prange, prange))
 
         # Build param_indices: position of each calibrated param in PARAM_NAMES
@@ -172,6 +175,7 @@ class JaxTransferFunctionConfig:
 
         # Build default full parameter array (30,) from Parameters.default()
         from jfuse.fuse.state import Parameters
+
         default_p = Parameters.default(n_hrus=1)
         self._default_full_params = np.array(
             [float(getattr(default_p, name)) for name in PARAM_NAMES],
@@ -239,7 +243,7 @@ class JaxTransferFunctionConfig:
         coeffs = np.zeros(self.n_coefficients, dtype=np.float32)
         for i, pname in enumerate(self.calibrated_params):
             coeffs[2 * i] = self._default_full_params[PARAM_NAMES.index(pname)]
-            coeffs[2 * i + 1] = 0.0            # b = 0 (uniform)
+            coeffs[2 * i + 1] = 0.0  # b = 0 (uniform)
         return coeffs
 
 
@@ -247,13 +251,14 @@ class JaxTransferFunctionConfig:
 # Pure JAX transfer function
 # ============================================================================
 
+
 def apply_transfer_functions(
-    coeff_array: "Array",      # (2*n_calib,) — pairs of (a, b)
-    attr_matrix: "Array",      # (n_grus, n_calib) — normalized attributes
-    default_params: "Array",   # (30,) — defaults for non-calibrated params
-    param_indices: "Array",    # (n_calib,) — index into PARAM_NAMES
-    lower_bounds: "Array",     # (30,)
-    upper_bounds: "Array",     # (30,)
+    coeff_array: "Array",  # (2*n_calib,) — pairs of (a, b)
+    attr_matrix: "Array",  # (n_grus, n_calib) — normalized attributes
+    default_params: "Array",  # (30,) — defaults for non-calibrated params
+    param_indices: "Array",  # (n_calib,) — index into PARAM_NAMES
+    lower_bounds: "Array",  # (30,)
+    upper_bounds: "Array",  # (30,)
     n_grus: int,
 ) -> "Array":
     """Apply linear transfer functions to produce per-GRU parameters.

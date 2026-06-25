@@ -15,86 +15,85 @@ import jax.numpy as jnp
 from jax import Array
 import equinox as eqx
 
-
 # =============================================================================
 # PARAMETER BOUNDS AND NAMES
 # =============================================================================
 
 # Parameter names in order (matches C++ implementation)
 PARAM_NAMES = (
-    "S1_max",      # Maximum upper layer storage (mm)
-    "S2_max",      # Maximum lower layer storage (mm)
-    "f_tens",      # Fraction of storage as tension
-    "f_rchr",      # Fraction tension in primary zone
-    "f_base",      # Fraction free storage in primary reservoir
-    "r1",          # Root fraction in upper layer
-    "ku",          # Upper layer drainage rate (1/day)
-    "c",           # VIC/ARNO infiltration shape parameter
-    "alpha",       # Sacramento percolation shape
-    "psi",         # Sacramento lower zone demand coefficient
-    "kappa",       # Fraction of percolation to tension storage
-    "ki",          # Interflow rate (1/day)
-    "ks",          # Baseflow rate (1/day)
-    "n",           # TOPMODEL decay parameter
-    "v",           # Linear baseflow rate (1/day)
-    "v_A",         # Primary reservoir rate (1/day)
-    "v_B",         # Secondary reservoir rate (1/day)
-    "Ac_max",      # Maximum saturated area fraction
-    "b",           # VIC 'b' parameter
-    "lam",         # Pareto shape for storage capacity (renamed from lambda)
-    "chi",         # TOPMODEL shape parameter
-    "mu_t",        # Time scale for percolation (days)
-    "T_rain",      # Rain/snow threshold temperature (°C)
-    "T_melt",      # Snowmelt threshold temperature (°C)
-    "melt_rate",   # Degree-day melt factor (mm/°C/day)
+    "S1_max",  # Maximum upper layer storage (mm)
+    "S2_max",  # Maximum lower layer storage (mm)
+    "f_tens",  # Fraction of storage as tension
+    "f_rchr",  # Fraction tension in primary zone
+    "f_base",  # Fraction free storage in primary reservoir
+    "r1",  # Root fraction in upper layer
+    "ku",  # Upper layer drainage rate (1/day)
+    "c",  # VIC/ARNO infiltration shape parameter
+    "alpha",  # Sacramento percolation shape
+    "psi",  # Sacramento lower zone demand coefficient
+    "kappa",  # Fraction of percolation to tension storage
+    "ki",  # Interflow rate (1/day)
+    "ks",  # Baseflow rate (1/day)
+    "n",  # TOPMODEL decay parameter
+    "v",  # Linear baseflow rate (1/day)
+    "v_A",  # Primary reservoir rate (1/day)
+    "v_B",  # Secondary reservoir rate (1/day)
+    "Ac_max",  # Maximum saturated area fraction
+    "b",  # VIC 'b' parameter
+    "lam",  # Pareto shape for storage capacity (renamed from lambda)
+    "chi",  # TOPMODEL shape parameter
+    "mu_t",  # Time scale for percolation (days)
+    "T_rain",  # Rain/snow threshold temperature (°C)
+    "T_melt",  # Snowmelt threshold temperature (°C)
+    "melt_rate",  # Degree-day melt factor (mm/°C/day)
     "lapse_rate",  # Temperature lapse rate (°C/100m)
-    "opg",         # Orographic precipitation gradient (%/100m)
-    "MFMAX",       # Maximum seasonal melt factor (mm/°C/day)
-    "MFMIN",       # Minimum seasonal melt factor (mm/°C/day)
-    "smooth_frac", # Smoothing fraction for overflow
+    "opg",  # Orographic precipitation gradient (%/100m)
+    "MFMAX",  # Maximum seasonal melt factor (mm/°C/day)
+    "MFMIN",  # Minimum seasonal melt factor (mm/°C/day)
+    "smooth_frac",  # Smoothing fraction for overflow
     # --- Glacier module (appended; indices preserved for legacy arrays) ---
-    "DDF_ice",     # Ice degree-day melt factor (mm/°C/day)
-    "T_ice",       # Ice-melt threshold temperature (°C)
-    "K_glac",      # Glacier-reservoir release coefficient (1/day)
+    "DDF_ice",  # Ice degree-day melt factor (mm/°C/day)
+    "T_ice",  # Ice-melt threshold temperature (°C)
+    "K_glac",  # Glacier-reservoir release coefficient (1/day)
 )
 
 # Parameter bounds: (lower, upper)
 PARAM_BOUNDS: Dict[str, Tuple[float, float]] = {
-    "S1_max":      (50.0, 5000.0),
-    "S2_max":      (100.0, 20000.0),
-    "f_tens":      (0.05, 0.95),
-    "f_rchr":      (0.05, 0.95),
-    "f_base":      (0.05, 0.95),
-    "r1":          (0.05, 0.95),
-    "ku":          (0.001, 1.0),
-    "c":           (0.1, 10.0),
-    "alpha":       (0.1, 10.0),
-    "psi":         (0.001, 5.0),
-    "kappa":       (0.05, 0.95),
-    "ki":          (0.001, 1.0),
-    "ks":          (0.0001, 0.1),
-    "n":           (0.1, 10.0),
-    "v":           (0.001, 0.5),
-    "v_A":         (0.001, 0.5),
-    "v_B":         (0.0001, 0.1),
-    "Ac_max":      (0.01, 1.0),
-    "b":           (0.01, 3.0),
-    "lam":         (0.01, 5.0),
-    "chi":         (1.0, 20.0),
-    "mu_t":        (0.01, 100.0),
-    "T_rain":      (-3.0, 5.0),
-    "T_melt":      (-3.0, 5.0),
-    "melt_rate":   (0.5, 10.0),
-    "lapse_rate":  (0.3, 1.0),
-    "opg":         (-10.0, 50.0),
-    "MFMAX":       (1.0, 8.0),
-    "MFMIN":       (0.1, 2.0),
+    "S1_max": (50.0, 5000.0),
+    "S2_max": (100.0, 20000.0),
+    "f_tens": (0.05, 0.95),
+    "f_rchr": (0.05, 0.95),
+    "f_base": (0.05, 0.95),
+    "r1": (0.05, 0.95),
+    "ku": (0.001, 1.0),
+    "c": (0.1, 10.0),
+    "alpha": (0.1, 10.0),
+    "psi": (0.001, 5.0),
+    "kappa": (0.05, 0.95),
+    "ki": (0.001, 1.0),
+    "ks": (0.0001, 0.1),
+    "n": (0.1, 10.0),
+    "v": (0.001, 0.5),
+    "v_A": (0.001, 0.5),
+    "v_B": (0.0001, 0.1),
+    "Ac_max": (0.01, 1.0),
+    "b": (0.01, 3.0),
+    "lam": (0.01, 5.0),
+    "chi": (1.0, 20.0),
+    "mu_t": (0.01, 100.0),
+    "T_rain": (-3.0, 5.0),
+    "T_melt": (-3.0, 5.0),
+    "melt_rate": (0.5, 10.0),
+    "lapse_rate": (0.3, 1.0),
+    "opg": (-10.0, 50.0),
+    "MFMAX": (1.0, 8.0),
+    "MFMIN": (0.1, 2.0),
     "smooth_frac": (0.001, 0.1),
     # Glacier: ice DDF usually exceeds the snow factor (lower ice albedo);
     # 3-15 mm/°C/day spans clean to debris-influenced ice. K_glac fast (days).
-    "DDF_ice":     (3.0, 15.0),
-    "T_ice":       (-2.0, 2.0),
-    "K_glac":      (0.01, 1.0),
+    "DDF_ice": (3.0, 15.0),
+    "T_ice": (-2.0, 2.0),
+    "K_glac": (0.01, 1.0),
 }
 
 NUM_PARAMETERS = len(PARAM_NAMES)
@@ -107,7 +106,7 @@ DEFAULT_ICE = 1.0e7
 
 def get_param_bounds_arrays() -> Tuple[Array, Array]:
     """Get parameter bounds as JAX arrays.
-    
+
     Returns:
         Tuple of (lower_bounds, upper_bounds) arrays of shape (NUM_PARAMETERS,)
     """
@@ -120,12 +119,13 @@ def get_param_bounds_arrays() -> Tuple[Array, Array]:
 # STATE VARIABLES
 # =============================================================================
 
+
 class State(eqx.Module):
     """Model state variables for a single HRU.
-    
+
     State variable naming follows Clark et al. (2008) Table 1.
     All storages are in mm.
-    
+
     Attributes:
         S1: Total upper layer storage
         S1_T: Upper layer tension storage (below field capacity)
@@ -140,6 +140,7 @@ class State(eqx.Module):
         ICE: Glacier ice store (mm w.e.); large => fixed-geometry glacier
         S_glac: Fast glacier-reservoir storage (mm)
     """
+
     S1: Array
     S1_T: Array
     S1_TA: Array
@@ -159,10 +160,10 @@ class State(eqx.Module):
     @classmethod
     def default(cls, n_hrus: int = 1) -> "State":
         """Create default initial state.
-        
+
         Args:
             n_hrus: Number of HRUs (for batched operations)
-            
+
         Returns:
             State with default values
         """
@@ -186,11 +187,23 @@ class State(eqx.Module):
 
     def to_array(self) -> Array:
         """Flatten state to array for numerical integration."""
-        return jnp.stack([
-            self.S1, self.S1_T, self.S1_TA, self.S1_TB, self.S1_F,
-            self.S2, self.S2_T, self.S2_FA, self.S2_FB, self.SWE,
-            self.ICE, self.S_glac,
-        ], axis=-1)
+        return jnp.stack(
+            [
+                self.S1,
+                self.S1_T,
+                self.S1_TA,
+                self.S1_TB,
+                self.S1_F,
+                self.S2,
+                self.S2_T,
+                self.S2_FA,
+                self.S2_FB,
+                self.SWE,
+                self.ICE,
+                self.S_glac,
+            ],
+            axis=-1,
+        )
 
     @classmethod
     def from_array(cls, arr: Array) -> "State":
@@ -222,12 +235,13 @@ class State(eqx.Module):
 # FLUX VARIABLES
 # =============================================================================
 
+
 class Flux(eqx.Module):
     """Model fluxes for a single timestep.
-    
+
     Flux naming follows Clark et al. (2008) Table 2.
     All fluxes in mm/day.
-    
+
     Attributes:
         rain: Rainfall (after snow partition)
         melt: Snowmelt
@@ -241,6 +255,7 @@ class Flux(eqx.Module):
         q_total: Total runoff (qsx + qif + qb)
         Ac: Saturated contributing area fraction
     """
+
     rain: Array
     melt: Array
     throughfall: Array
@@ -252,7 +267,7 @@ class Flux(eqx.Module):
     q12: Array
     q_total: Array
     Ac: Array
-    
+
     @classmethod
     def zeros(cls, shape: Tuple = ()) -> "Flux":
         """Create zero-initialized fluxes."""
@@ -275,18 +290,20 @@ class Flux(eqx.Module):
 # FORCING DATA
 # =============================================================================
 
+
 class Forcing(eqx.Module):
     """Meteorological forcing for a single timestep.
-    
+
     Attributes:
         precip: Total precipitation (mm/day)
         pet: Potential evapotranspiration (mm/day)
         temp: Air temperature (°C) - for snow module
     """
+
     precip: Array
     pet: Array
     temp: Array
-    
+
     @classmethod
     def from_arrays(cls, precip: Array, pet: Array, temp: Array) -> "Forcing":
         """Create forcing from separate arrays."""
@@ -297,85 +314,87 @@ class Forcing(eqx.Module):
 # PARAMETERS
 # =============================================================================
 
+
 class Parameters(eqx.Module):
     """Model parameters for FUSE.
-    
+
     Parameter naming and bounds follow Clark et al. (2008) Table 3.
-    
+
     This class stores both the adjustable parameters and derived quantities
     that are computed from them.
     """
+
     # Storage parameters
-    S1_max: Array      # Maximum upper layer storage (mm)
-    S2_max: Array      # Maximum lower layer storage (mm)
-    f_tens: Array      # Fraction of storage as tension
-    f_rchr: Array      # Fraction tension in primary zone
-    f_base: Array      # Fraction free storage in primary reservoir
-    
+    S1_max: Array  # Maximum upper layer storage (mm)
+    S2_max: Array  # Maximum lower layer storage (mm)
+    f_tens: Array  # Fraction of storage as tension
+    f_rchr: Array  # Fraction tension in primary zone
+    f_base: Array  # Fraction free storage in primary reservoir
+
     # Evaporation parameters
-    r1: Array          # Root fraction in upper layer
-    
+    r1: Array  # Root fraction in upper layer
+
     # Percolation parameters
-    ku: Array          # Upper layer drainage rate (1/day)
-    c: Array           # VIC/ARNO infiltration shape
-    alpha: Array       # Sacramento percolation shape
-    psi: Array         # Sacramento lower zone demand coefficient
-    kappa: Array       # Fraction of percolation to tension storage
-    
+    ku: Array  # Upper layer drainage rate (1/day)
+    c: Array  # VIC/ARNO infiltration shape
+    alpha: Array  # Sacramento percolation shape
+    psi: Array  # Sacramento lower zone demand coefficient
+    kappa: Array  # Fraction of percolation to tension storage
+
     # Lateral flow parameters
-    ki: Array          # Interflow rate (1/day)
-    ks: Array          # Baseflow rate (1/day)
-    
+    ki: Array  # Interflow rate (1/day)
+    ks: Array  # Baseflow rate (1/day)
+
     # Baseflow parameters
-    n: Array           # TOPMODEL decay parameter
-    v: Array           # Linear baseflow rate (1/day)
-    v_A: Array         # Primary reservoir rate (1/day)
-    v_B: Array         # Secondary reservoir rate (1/day)
-    
+    n: Array  # TOPMODEL decay parameter
+    v: Array  # Linear baseflow rate (1/day)
+    v_A: Array  # Primary reservoir rate (1/day)
+    v_B: Array  # Secondary reservoir rate (1/day)
+
     # Saturated area parameters
-    Ac_max: Array      # Maximum saturated area fraction
-    b: Array           # VIC 'b' parameter
-    lam: Array         # Pareto shape (renamed from lambda)
-    chi: Array         # TOPMODEL shape parameter
-    
+    Ac_max: Array  # Maximum saturated area fraction
+    b: Array  # VIC 'b' parameter
+    lam: Array  # Pareto shape (renamed from lambda)
+    chi: Array  # TOPMODEL shape parameter
+
     # Time scale parameters
-    mu_t: Array        # Time scale for percolation (days)
-    
+    mu_t: Array  # Time scale for percolation (days)
+
     # Snow parameters
-    T_rain: Array      # Rain/snow threshold (°C)
-    T_melt: Array      # Snowmelt threshold (°C)
-    melt_rate: Array   # Degree-day melt factor (mm/°C/day)
+    T_rain: Array  # Rain/snow threshold (°C)
+    T_melt: Array  # Snowmelt threshold (°C)
+    melt_rate: Array  # Degree-day melt factor (mm/°C/day)
     lapse_rate: Array  # Temperature lapse rate (°C/100m)
-    opg: Array         # Orographic precipitation gradient
-    MFMAX: Array       # Maximum seasonal melt factor
-    MFMIN: Array       # Minimum seasonal melt factor
+    opg: Array  # Orographic precipitation gradient
+    MFMAX: Array  # Maximum seasonal melt factor
+    MFMIN: Array  # Minimum seasonal melt factor
 
     # Smoothing
-    smooth_frac: Array # Smoothing fraction for overflow
+    smooth_frac: Array  # Smoothing fraction for overflow
 
     # Glacier parameters (appended to keep legacy PARAM_NAMES indices stable)
-    DDF_ice: Array     # Ice degree-day melt factor (mm/°C/day)
-    T_ice: Array       # Ice-melt threshold temperature (°C)
-    K_glac: Array      # Glacier-reservoir release coefficient (1/day)
-    
+    DDF_ice: Array  # Ice degree-day melt factor (mm/°C/day)
+    T_ice: Array  # Ice-melt threshold temperature (°C)
+    K_glac: Array  # Glacier-reservoir release coefficient (1/day)
+
     # Derived parameters (computed from above)
-    S1_T_max: Array    # = f_tens * S1_max
-    S1_F_max: Array    # = (1 - f_tens) * S1_max
-    S1_TA_max: Array   # = f_rchr * S1_T_max
-    S1_TB_max: Array   # = (1 - f_rchr) * S1_T_max
-    S2_T_max: Array    # = f_tens * S2_max
-    S2_F_max: Array    # = (1 - f_tens) * S2_max
-    S2_FA_max: Array   # = f_base * S2_F_max
-    S2_FB_max: Array   # = (1 - f_base) * S2_F_max
-    m: Array           # TOPMODEL: S2_max / n
-    
+    S1_T_max: Array  # = f_tens * S1_max
+    S1_F_max: Array  # = (1 - f_tens) * S1_max
+    S1_TA_max: Array  # = f_rchr * S1_T_max
+    S1_TB_max: Array  # = (1 - f_rchr) * S1_T_max
+    S2_T_max: Array  # = f_tens * S2_max
+    S2_F_max: Array  # = (1 - f_tens) * S2_max
+    S2_FA_max: Array  # = f_base * S2_F_max
+    S2_FB_max: Array  # = (1 - f_base) * S2_F_max
+    m: Array  # TOPMODEL: S2_max / n
+
     @classmethod
     def default(cls, n_hrus: int = 1) -> "Parameters":
         """Create default parameters."""
         shape = (n_hrus,) if n_hrus > 1 else ()
         # Use float32 for compatibility with neuralgcm (which requires JAX_ENABLE_X64=False)
         dtype = jnp.float32
-        
+
         # Adjustable parameters with reasonable defaults
         params = {
             "S1_max": 200.0,
@@ -413,10 +432,10 @@ class Parameters(eqx.Module):
             "T_ice": 0.0,
             "K_glac": 0.3,
         }
-        
+
         # Convert to arrays with explicit dtype
         arr_params = {k: jnp.full(shape, v, dtype=dtype) for k, v in params.items()}
-        
+
         # Compute derived parameters
         S1_max = arr_params["S1_max"]
         S2_max = arr_params["S2_max"]
@@ -424,7 +443,7 @@ class Parameters(eqx.Module):
         f_rchr = arr_params["f_rchr"]
         f_base = arr_params["f_base"]
         n = arr_params["n"]
-        
+
         S1_T_max = f_tens * S1_max
         S1_F_max = (1.0 - f_tens) * S1_max
         S1_TA_max = f_rchr * S1_T_max
@@ -434,7 +453,7 @@ class Parameters(eqx.Module):
         S2_FA_max = f_base * S2_F_max
         S2_FB_max = (1.0 - f_base) * S2_F_max
         m = S2_max / jnp.maximum(n, 0.1)
-        
+
         return cls(
             **arr_params,
             S1_T_max=S1_T_max,
@@ -447,7 +466,7 @@ class Parameters(eqx.Module):
             S2_FB_max=S2_FB_max,
             m=m,
         )
-    
+
     @staticmethod
     def _default_scalar(name: str) -> float:
         """Default value for a parameter, used to pad legacy (pre-glacier)
@@ -462,11 +481,11 @@ class Parameters(eqx.Module):
     @classmethod
     def from_array(cls, arr: Array, n_hrus: int = 1) -> "Parameters":
         """Create parameters from flat array.
-        
+
         Args:
             arr: Array of shape (NUM_PARAMETERS,) or (n_hrus, NUM_PARAMETERS)
             n_hrus: Number of HRUs
-            
+
         Returns:
             Parameters instance with derived quantities computed
         """
@@ -488,11 +507,11 @@ class Parameters(eqx.Module):
 
         # Extract adjustable parameters
         params = {name: arr[:, i] for i, name in enumerate(PARAM_NAMES)}
-        
+
         # Squeeze if single HRU
         if n_hrus == 1:
             params = {k: v.squeeze(0) for k, v in params.items()}
-        
+
         # Compute derived parameters
         S1_max = params["S1_max"]
         S2_max = params["S2_max"]
@@ -500,7 +519,7 @@ class Parameters(eqx.Module):
         f_rchr = params["f_rchr"]
         f_base = params["f_base"]
         n = params["n"]
-        
+
         S1_T_max = f_tens * S1_max
         S1_F_max = (1.0 - f_tens) * S1_max
         S1_TA_max = f_rchr * S1_T_max
@@ -510,7 +529,7 @@ class Parameters(eqx.Module):
         S2_FA_max = f_base * S2_F_max
         S2_FB_max = (1.0 - f_base) * S2_F_max
         m = S2_max / jnp.maximum(n, 0.1)
-        
+
         return cls(
             **params,
             S1_T_max=S1_T_max,
@@ -523,7 +542,7 @@ class Parameters(eqx.Module):
             S2_FB_max=S2_FB_max,
             m=m,
         )
-    
+
     def to_array(self) -> Array:
         """Convert adjustable parameters to flat array."""
         return jnp.stack([getattr(self, name) for name in PARAM_NAMES], axis=-1)
@@ -538,6 +557,7 @@ class Parameters(eqx.Module):
             True if all parameters are within bounds, False otherwise
         """
         import warnings
+
         all_valid = True
 
         for name in PARAM_NAMES:

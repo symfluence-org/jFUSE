@@ -40,7 +40,7 @@ class JFUSEModelOptimizer(BaseModelOptimizer):
         config: Dict[str, Any],
         logger: logging.Logger,
         optimization_settings_dir: Optional[Path] = None,
-        reporting_manager: Optional[Any] = None
+        reporting_manager: Optional[Any] = None,
     ):
         """
         Initialize jFUSE optimizer.
@@ -54,32 +54,31 @@ class JFUSEModelOptimizer(BaseModelOptimizer):
         # Initialize jFUSE-specific paths before super().__init__
         # Store the raw config dict for passing to parameter manager
         self._raw_config = config if isinstance(config, dict) else {}
-        _exp_id = config.get('EXPERIMENT_ID')  # noqa: F841
-        self.data_dir = Path(config.get('SYMFLUENCE_DATA_DIR'))
-        self.domain_name = config.get('DOMAIN_NAME')
+        _exp_id = config.get("EXPERIMENT_ID")  # noqa: F841
+        self.data_dir = Path(config.get("SYMFLUENCE_DATA_DIR"))
+        self.domain_name = config.get("DOMAIN_NAME")
         self.project_dir = self.data_dir / f"domain_{self.domain_name}"
 
-        self.jfuse_setup_dir = self.project_dir / 'settings' / 'JFUSE'
-        self.jfuse_forcing_dir = self.project_forcing_dir / 'JFUSE_input'
+        self.jfuse_setup_dir = self.project_dir / "settings" / "JFUSE"
+        self.jfuse_forcing_dir = self.project_forcing_dir / "JFUSE_input"
 
-        super().__init__(config, logger, optimization_settings_dir, reporting_manager=reporting_manager)
+        super().__init__(
+            config, logger, optimization_settings_dir, reporting_manager=reporting_manager
+        )
 
         self.logger.debug("JFUSEModelOptimizer initialized")
 
     def _get_model_name(self) -> str:
         """Return model name."""
-        return 'JFUSE'
+        return "JFUSE"
 
     def _create_parameter_manager(self):
         """Create jFUSE parameter manager."""
         from .parameter_manager import JFUSEParameterManager
+
         # Pass raw dict config so parameter manager can read flat YAML keys
         config_for_pm = self._raw_config if self._raw_config else self.config
-        return JFUSEParameterManager(
-            config_for_pm,
-            self.logger,
-            self.jfuse_setup_dir
-        )
+        return JFUSEParameterManager(config_for_pm, self.logger, self.jfuse_setup_dir)
 
     def _check_routing_needed(self) -> bool:
         """
@@ -92,28 +91,26 @@ class JFUSEModelOptimizer(BaseModelOptimizer):
         """
         # Check routing configuration
         routing_model = self._get_config_value(
-            lambda: self.config.model.routing_model,
-            default='none',
-            dict_key='ROUTING_MODEL'
+            lambda: self.config.model.routing_model, default="none", dict_key="ROUTING_MODEL"
         )
 
-        if routing_model != 'mizuRoute':
+        if routing_model != "mizuRoute":
             return False
 
         # Check spatial mode
         spatial_mode = self._get_config_value(
             lambda: self.config.model.jfuse.spatial_mode,
-            default='lumped',
-            dict_key='JFUSE_SPATIAL_MODE'
+            default="lumped",
+            dict_key="JFUSE_SPATIAL_MODE",
         )
 
         # Distributed mode may need external routing
-        if spatial_mode == 'distributed':
+        if spatial_mode == "distributed":
             # Check if internal routing is enabled
             enable_routing = self._get_config_value(
                 lambda: self.config.model.jfuse.enable_routing,
                 default=False,
-                dict_key='JFUSE_ENABLE_ROUTING'
+                dict_key="JFUSE_ENABLE_ROUTING",
             )
             # If internal routing disabled, use external
             return not enable_routing
@@ -132,9 +129,7 @@ class JFUSEModelOptimizer(BaseModelOptimizer):
         try:
             # Apply parameters to the worker (sets _current_params for run_model)
             if not self.worker.apply_parameters(
-                best_params,
-                self.jfuse_setup_dir,
-                config=self.config
+                best_params, self.jfuse_setup_dir, config=self.config
             ):
                 self.logger.error("Failed to apply best parameters to jFUSE worker")
                 return False
@@ -148,11 +143,7 @@ class JFUSEModelOptimizer(BaseModelOptimizer):
 
     def _run_model_for_final_evaluation(self, output_dir: Path) -> bool:
         """Run jFUSE for final evaluation."""
-        return self.worker.run_model(
-            self.config,
-            self.jfuse_setup_dir,
-            output_dir
-        )
+        return self.worker.run_model(self.config, self.jfuse_setup_dir, output_dir)
 
     def _get_final_file_manager_path(self) -> Path:
         """Get path to jFUSE configuration file (placeholder for jFUSE).
@@ -162,43 +153,36 @@ class JFUSEModelOptimizer(BaseModelOptimizer):
         file path that won't interfere with the base optimizer's
         file update operations (which check if the file exists).
         """
-        return self.jfuse_setup_dir / 'jfuse_config.txt'
+        return self.jfuse_setup_dir / "jfuse_config.txt"
 
     def _setup_parallel_dirs(self) -> None:
         """Setup jFUSE-specific parallel directories."""
         algorithm = self._get_config_value(
             lambda: self.config.optimization.algorithm,
-            default='optimization',
-            dict_key='ITERATIVE_OPTIMIZATION_ALGORITHM'
+            default="optimization",
+            dict_key="ITERATIVE_OPTIMIZATION_ALGORITHM",
         ).lower()
-        base_dir = self.project_dir / 'simulations' / f'run_{algorithm}'
-        self.parallel_dirs = self.setup_parallel_processing(
-            base_dir,
-            'JFUSE',
-            self.experiment_id
-        )
+        base_dir = self.project_dir / "simulations" / f"run_{algorithm}"
+        self.parallel_dirs = self.setup_parallel_processing(base_dir, "JFUSE", self.experiment_id)
 
         # Copy jFUSE settings to each parallel directory
         if self.jfuse_setup_dir.exists():
-            self.copy_base_settings(self.jfuse_setup_dir, self.parallel_dirs, 'JFUSE')
+            self.copy_base_settings(self.jfuse_setup_dir, self.parallel_dirs, "JFUSE")
 
         # If external routing needed, also copy mizuRoute settings
         if self._check_routing_needed():
-            mizu_settings = self.project_dir / 'settings' / 'mizuRoute'
+            mizu_settings = self.project_dir / "settings" / "mizuRoute"
             if mizu_settings.exists():
                 from symfluence.core.file_utils import copy_file
+
                 for proc_id, dirs in self.parallel_dirs.items():
-                    mizu_dest = dirs['root'] / 'settings' / 'mizuRoute'
+                    mizu_dest = dirs["root"] / "settings" / "mizuRoute"
                     mizu_dest.mkdir(parents=True, exist_ok=True)
                     for item in mizu_settings.iterdir():
                         if item.is_file():
                             copy_file(item, mizu_dest / item.name)
 
-                self.update_mizuroute_controls(
-                    self.parallel_dirs,
-                    'JFUSE',
-                    self.experiment_id
-                )
+                self.update_mizuroute_controls(self.parallel_dirs, "JFUSE", self.experiment_id)
                 self.logger.debug("Copied and configured mizuRoute settings for parallel processes")
 
 

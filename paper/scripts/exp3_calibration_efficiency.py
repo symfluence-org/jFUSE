@@ -119,10 +119,13 @@ def compute_nse(simulated: jnp.ndarray, observed: jnp.ndarray, warmup: int = 60)
     return float(1.0 - ss_res / (ss_tot + 1e-10))
 
 
-def gradient_based_calibration(forcing: FUSEForcing, observations: jnp.ndarray,
-                               optimizer_name: str = "adam",
-                               max_epochs: int = 500,
-                               lr: float = 0.01):
+def gradient_based_calibration(
+    forcing: FUSEForcing,
+    observations: jnp.ndarray,
+    optimizer_name: str = "adam",
+    max_epochs: int = 500,
+    lr: float = 0.01,
+):
     """Run gradient-based calibration."""
     model = create_fuse_model(PRMS_CONFIG)
     initial_state = FUSEState.zeros()
@@ -170,12 +173,14 @@ def gradient_based_calibration(forcing: FUSEForcing, observations: jnp.ndarray,
         params_array = jnp.clip(params_array, 0.01, 1000.0)
 
         nse = 1.0 - float(loss)
-        history.append({
-            "epoch": epoch,
-            "func_evals": func_evals,
-            "loss": float(loss),
-            "nse": nse,
-        })
+        history.append(
+            {
+                "epoch": epoch,
+                "func_evals": func_evals,
+                "loss": float(loss),
+                "nse": nse,
+            }
+        )
 
         # Early stopping
         if nse > 0.95:
@@ -184,9 +189,9 @@ def gradient_based_calibration(forcing: FUSEForcing, observations: jnp.ndarray,
     return history
 
 
-def derivative_free_calibration(forcing: FUSEForcing, observations: jnp.ndarray,
-                                method: str = "sce_ua",
-                                max_evals: int = 20000):
+def derivative_free_calibration(
+    forcing: FUSEForcing, observations: jnp.ndarray, method: str = "sce_ua", max_evals: int = 20000
+):
     """Simulate derivative-free calibration (SCE-UA or DDS)."""
     model = create_fuse_model(PRMS_CONFIG)
     initial_state = FUSEState.zeros()
@@ -215,15 +220,11 @@ def derivative_free_calibration(forcing: FUSEForcing, observations: jnp.ndarray,
 
     history = []
 
-    # Simulate convergence pattern typical of derivative-free methods
-    # SCE-UA typically needs many more evaluations
-    convergence_rate = 0.003 if method == "sce_ua" else 0.005  # DDS is slightly faster
-
     np.random.seed(456)
 
     for i in range(max_evals):
         # Random perturbation (simulating population-based search)
-        perturbation = np.random.normal(0, 0.1 * (1 - i/max_evals), len(best_params))
+        perturbation = np.random.normal(0, 0.1 * (1 - i / max_evals), len(best_params))
         candidate = best_params + perturbation
         candidate = jnp.clip(candidate, 0.01, 1000.0)
 
@@ -233,15 +234,14 @@ def derivative_free_calibration(forcing: FUSEForcing, observations: jnp.ndarray,
             best_nse = nse
             best_params = candidate
 
-        # Add some randomness to simulate real optimization
-        effective_nse = best_nse + np.random.normal(0, 0.01)
-
         if i % 100 == 0:
-            history.append({
-                "epoch": i,
-                "func_evals": i + 1,
-                "nse": best_nse,
-            })
+            history.append(
+                {
+                    "epoch": i,
+                    "func_evals": i + 1,
+                    "nse": best_nse,
+                }
+            )
 
         if best_nse > 0.90:
             break
@@ -252,7 +252,7 @@ def derivative_free_calibration(forcing: FUSEForcing, observations: jnp.ndarray,
 def run_experiment(quick: bool = False):
     """Run calibration efficiency experiment."""
     print("Experiment 3: Calibration Efficiency")
-    print("="*50)
+    print("=" * 50)
 
     # Generate data
     n_timesteps = 365 if quick else 730
@@ -263,14 +263,23 @@ def run_experiment(quick: bool = False):
     max_evals_df = 5000 if quick else 20000
 
     methods = [
-        ("jFUSE_Adam", lambda: gradient_based_calibration(
-            forcing, observations, "adam", max_epochs_grad, 0.01)),
-        ("jFUSE_LBFGS", lambda: gradient_based_calibration(
-            forcing, observations, "lbfgs", max_epochs_grad, 0.01)),
-        ("SCE_UA", lambda: derivative_free_calibration(
-            forcing, observations, "sce_ua", max_evals_df)),
-        ("DDS", lambda: derivative_free_calibration(
-            forcing, observations, "dds", max_evals_df)),
+        (
+            "jFUSE_Adam",
+            lambda: gradient_based_calibration(
+                forcing, observations, "adam", max_epochs_grad, 0.01
+            ),
+        ),
+        (
+            "jFUSE_LBFGS",
+            lambda: gradient_based_calibration(
+                forcing, observations, "lbfgs", max_epochs_grad, 0.01
+            ),
+        ),
+        (
+            "SCE_UA",
+            lambda: derivative_free_calibration(forcing, observations, "sce_ua", max_evals_df),
+        ),
+        ("DDS", lambda: derivative_free_calibration(forcing, observations, "dds", max_evals_df)),
     ]
 
     all_history = []
@@ -305,13 +314,15 @@ def run_experiment(quick: bool = False):
                     break
             evals_to_target[f"evals_to_{target}"] = evals if evals else ">max"
 
-        efficiency_results.append({
-            "method": name,
-            "final_nse": final_nse,
-            "total_evals": total_evals,
-            "wall_time_s": elapsed,
-            **evals_to_target,
-        })
+        efficiency_results.append(
+            {
+                "method": name,
+                "final_nse": final_nse,
+                "total_evals": total_evals,
+                "wall_time_s": elapsed,
+                **evals_to_target,
+            }
+        )
 
     # Save results
     history_df = pd.DataFrame(all_history)
@@ -326,7 +337,9 @@ def run_experiment(quick: bool = False):
     print(f"{'Method':<15} {'NSE=0.7':<12} {'NSE=0.8':<12} {'NSE=0.85':<12}")
     print("-" * 60)
     for r in efficiency_results:
-        print(f"{r['method']:<15} {str(r['evals_to_0.7']):<12} {str(r['evals_to_0.8']):<12} {str(r['evals_to_0.85']):<12}")
+        print(
+            f"{r['method']:<15} {str(r['evals_to_0.7']):<12} {str(r['evals_to_0.8']):<12} {str(r['evals_to_0.85']):<12}"
+        )
 
     print(f"\nResults saved to: {RESULTS_DIR}")
 

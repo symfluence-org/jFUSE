@@ -43,6 +43,7 @@ try:
         create_fuse_model,
     )
     from jfuse.fuse.config import SnowType
+
     HAS_JFUSE = True
     HAS_EQUINOX = True
 except ImportError:
@@ -65,6 +66,7 @@ except ImportError:
 try:
     import jax
     import jax.numpy as jnp
+
     HAS_JAX = True
 except ImportError:
     HAS_JAX = False
@@ -97,7 +99,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         config: Dict[str, Any],
         logger: logging.Logger,
         reporting_manager: Optional[Any] = None,
-        settings_dir: Optional[Path] = None
+        settings_dir: Optional[Path] = None,
     ):
         """
         Initialize jFUSE runner.
@@ -121,66 +123,126 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
         # Determine spatial mode
         configured_mode = self._get_config_value(
-            lambda: self.config.model.jfuse.spatial_mode if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            'auto'
+            lambda: (
+                self.config.model.jfuse.spatial_mode
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            "auto",
         )
 
-        if configured_mode in (None, 'auto', 'default'):
-            if self.domain_definition_method == 'delineate':
-                self.spatial_mode = 'distributed'
+        if configured_mode in (None, "auto", "default"):
+            if self.domain_definition_method == "delineate":
+                self.spatial_mode = "distributed"
             else:
-                self.spatial_mode = 'lumped'
+                self.spatial_mode = "lumped"
         else:
             self.spatial_mode = configured_mode
 
         # Model structure configuration - default to prms_gradient for full gradient support
         self.model_config_name = self._get_config_value(
-            lambda: self.config.model.jfuse.model_config_name if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            'prms_gradient'
+            lambda: (
+                self.config.model.jfuse.model_config_name
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            "prms_gradient",
         )
 
         # Snow configuration
         self.enable_snow = self._get_config_value(
-            lambda: self.config.model.jfuse.enable_snow if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            True
+            lambda: (
+                self.config.model.jfuse.enable_snow
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            True,
         )
 
         # Routing configuration
         self.enable_routing = self._get_config_value(
-            lambda: self.config.model.jfuse.enable_routing if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            False
+            lambda: (
+                self.config.model.jfuse.enable_routing
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            False,
         )
 
         # JIT configuration
         self.jit_compile = self._get_config_value(
-            lambda: self.config.model.jfuse.jit_compile if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            True
+            lambda: (
+                self.config.model.jfuse.jit_compile
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            True,
         )
 
         self.use_gpu = self._get_config_value(
-            lambda: self.config.model.jfuse.use_gpu if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            False
+            lambda: (
+                self.config.model.jfuse.use_gpu
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            False,
         )
 
         # Initial state configuration
         self.warmup_days = self._get_config_value(
-            lambda: self.config.model.jfuse.warmup_days if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            365
+            lambda: (
+                self.config.model.jfuse.warmup_days
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            365,
         )
 
         self.initial_s1 = self._get_config_value(
-            lambda: self.config.model.jfuse.initial_s1 if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            0.0
+            lambda: (
+                self.config.model.jfuse.initial_s1
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            0.0,
         )
 
         self.initial_s2 = self._get_config_value(
-            lambda: self.config.model.jfuse.initial_s2 if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            50.0
+            lambda: (
+                self.config.model.jfuse.initial_s2
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            50.0,
         )
 
         self.initial_snow = self._get_config_value(
-            lambda: self.config.model.jfuse.initial_snow if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            0.0
+            lambda: (
+                self.config.model.jfuse.initial_snow
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            0.0,
         )
 
         # Lazy-loaded model
@@ -189,12 +251,12 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
     def _setup_model_specific_paths(self) -> None:
         """Set up jFUSE-specific paths."""
-        if hasattr(self, 'settings_dir') and self.settings_dir:
+        if hasattr(self, "settings_dir") and self.settings_dir:
             self.jfuse_setup_dir = self.settings_dir
         else:
             self.jfuse_setup_dir = self.project_dir / "settings" / "JFUSE"
 
-        self.jfuse_forcing_dir = self.project_forcing_dir / 'JFUSE_input'
+        self.jfuse_forcing_dir = self.project_forcing_dir / "JFUSE_input"
 
     def _get_output_dir(self) -> Path:
         """jFUSE output directory."""
@@ -204,15 +266,15 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         """Get total catchment area in m2."""
         try:
             import geopandas as gpd
-            catchment_dir = self.project_dir / 'shapefiles' / 'catchment'
+
+            catchment_dir = self.project_dir / "shapefiles" / "catchment"
             discretization = self._get_config_value(
-                lambda: self.config.domain.discretization,
-                'GRUs'
+                lambda: self.config.domain.discretization, "GRUs"
             )
             catchment_path = catchment_dir / f"{self.domain_name}_HRUs_{discretization}.shp"
             if catchment_path.exists():
                 gdf = gpd.read_file(catchment_path)
-                area_cols = [c for c in gdf.columns if 'area' in c.lower()]
+                area_cols = [c for c in gdf.columns if "area" in c.lower()]
                 if area_cols:
                     total_area = gdf[area_cols[0]].sum()
                     self.logger.info(f"Catchment area from shapefile: {total_area/1e6:.2f} km2")
@@ -221,10 +283,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             self.logger.debug(f"Could not read catchment area from shapefile: {e}")
 
         # Fall back to config
-        area_km2 = self._get_config_value(
-            lambda: self.config.domain.catchment_area_km2,
-            None
-        )
+        area_km2 = self._get_config_value(lambda: self.config.domain.catchment_area_km2, None)
         if area_km2:
             return area_km2 * 1e6
 
@@ -232,7 +291,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         self.logger.warning("Could not determine catchment area, using default 1000 km2")
         return 1000.0 * 1e6
 
-    def _get_model_config(self) -> 'ModelConfig':
+    def _get_model_config(self) -> "ModelConfig":
         """Get the jFUSE ModelConfig based on configuration settings.
 
         Supports both predefined config names (e.g. 'prms_gradient') and
@@ -246,7 +305,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         decision_options = self._get_config_value(
             lambda: None,  # No structured config path for this
             default=None,
-            dict_key='JFUSE_DECISION_OPTIONS'
+            dict_key="JFUSE_DECISION_OPTIONS",
         )
 
         if decision_options and isinstance(decision_options, dict):
@@ -257,8 +316,10 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             # Get base config from predefined configs
             config_name = self.model_config_name.lower()
             if config_name not in JFUSE_CONFIGS:
-                self.logger.warning(f"Unknown config '{config_name}', falling back to 'prms_gradient'")
-                config_name = 'prms_gradient'
+                self.logger.warning(
+                    f"Unknown config '{config_name}', falling back to 'prms_gradient'"
+                )
+                config_name = "prms_gradient"
             base_config = JFUSE_CONFIGS[config_name]
 
         # Modify snow setting if needed
@@ -267,7 +328,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
         return base_config
 
-    def _build_config_from_decisions(self, decisions: Dict[str, Any]) -> 'ModelConfig':
+    def _build_config_from_decisions(self, decisions: Dict[str, Any]) -> "ModelConfig":
         """Build a jFUSE ModelConfig from Fortran FUSE decision options.
 
         Delegates to :func:`jfuse.build_config_from_decisions` so the decision
@@ -275,7 +336,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         """
         return build_config_from_decisions(decisions)
 
-    def _dict_to_params(self, param_dict: Dict[str, float], n_hrus: int = 1) -> 'Parameters':
+    def _dict_to_params(self, param_dict: Dict[str, float], n_hrus: int = 1) -> "Parameters":
         """
         Convert a parameter dictionary to a jFUSE Parameters object.
 
@@ -295,7 +356,9 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         # Update each parameter from the dict
         for name, value in param_dict.items():
             if hasattr(params, name):
-                params = eqx.tree_at(lambda p, _name=name: getattr(p, _name), params, jnp.array(float(value)))
+                params = eqx.tree_at(
+                    lambda p, _name=name: getattr(p, _name), params, jnp.array(float(value))
+                )
 
         return params
 
@@ -305,16 +368,16 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             return {}
 
         return {
-            'S1_max': 100.0,
-            'S2_max': 500.0,
-            'ku': 0.5,
-            'ki': 0.1,
-            'ks': 0.01,
-            'n': 1.0,
-            'v': 0.5,
-            'Ac_max': 0.5,
-            'T_melt': 0.0,
-            'melt_rate': 3.0,
+            "S1_max": 100.0,
+            "S2_max": 500.0,
+            "ku": 0.5,
+            "ki": 0.1,
+            "ks": 0.01,
+            "n": 1.0,
+            "v": 0.5,
+            "Ac_max": 0.5,
+            "T_melt": 0.0,
+            "melt_rate": 3.0,
         }
 
     def run_jfuse(self, params: Optional[Dict[str, float]] = None) -> Optional[Path]:
@@ -332,7 +395,9 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             self.logger.error("jFUSE not installed. Cannot run model.")
             return None
 
-        self.logger.info(f"Starting jFUSE model run in {self.spatial_mode} mode (structure: {self.model_config_name})")
+        self.logger.info(
+            f"Starting jFUSE model run in {self.spatial_mode} mode (structure: {self.model_config_name})"
+        )
 
         # Store provided parameters
         if params:
@@ -340,9 +405,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             self._external_params = params
 
         with symfluence_error_handler(
-            "jFUSE model execution",
-            self.logger,
-            error_type=ModelExecutionError
+            "jFUSE model execution", self.logger, error_type=ModelExecutionError
         ):
             # Create output directory
             self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -369,13 +432,15 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             # Load forcing data
             forcing, obs = self._load_forcing()
 
-            precip = forcing['precip'].flatten()
-            temp = forcing['temp'].flatten()
-            pet = forcing['pet'].flatten()
-            time_index = forcing['time']
+            precip = forcing["precip"].flatten()
+            temp = forcing["temp"].flatten()
+            pet = forcing["pet"].flatten()
+            time_index = forcing["time"]
 
             # Get parameters - convert dict to Parameters object
-            param_dict = self._external_params if self._external_params else self._get_default_params()
+            param_dict = (
+                self._external_params if self._external_params else self._get_default_params()
+            )
             params = self._dict_to_params(param_dict, n_hrus=1)
 
             # Create jFUSE model - use custom config if available, otherwise use create_fuse_model
@@ -398,8 +463,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             model = self._with_glacier(model, glac_on)
 
             forcing_tuple = (precip_jax, pet_jax, temp_jax)
-            runoff, final_state = model.simulate(
-                forcing_tuple, params, glacier_frac=glacier_frac)
+            runoff, final_state = model.simulate(forcing_tuple, params, glacier_frac=glacier_frac)
 
             # Convert output to numpy
             runoff = np.array(runoff)
@@ -412,6 +476,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Error in lumped jFUSE execution: {e}")
             import traceback
+
             self.logger.debug(traceback.format_exc())
             return False
 
@@ -423,23 +488,25 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         where glacier_frac is a scalar (lumped) or ``[n_hrus]`` array, or
         ``(None, False)``.
         """
-        if not bool(self._get_config_value(lambda: None, default=True,
-                                           dict_key='JFUSE_ENABLE_GLACIER')):
+        if not bool(
+            self._get_config_value(lambda: None, default=True, dict_key="JFUSE_ENABLE_GLACIER")
+        ):
             return None, False
         try:
             from jfuse.static_inputs import load_glacier_fraction
             import jax.numpy as jnp
+
             frac = load_glacier_fraction(self.project_dir, self.domain_name, self.logger)
             if frac is None or float(np.max(frac)) <= 0.0:
                 return None, False
-            frac = np.asarray(frac, dtype='float32')
+            frac = np.asarray(frac, dtype="float32")
             if n_hrus == 1:
                 return jnp.asarray(float(frac.mean())), True
             if frac.size == n_hrus:
                 return jnp.asarray(frac), True
             self.logger.warning(
-                "Glacier fraction length %d != %d HRUs; disabling glacier.",
-                frac.size, n_hrus)
+                "Glacier fraction length %d != %d HRUs; disabling glacier.", frac.size, n_hrus
+            )
             return None, False
         except Exception:  # noqa: BLE001 — glacier optional
             self.logger.debug("Glacier load failed for run", exc_info=True)
@@ -458,24 +525,28 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
         try:
             # Load distributed forcing
-            forcing_file = self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing_distributed.nc"
+            forcing_file = (
+                self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing_distributed.nc"
+            )
             if not forcing_file.exists():
                 self.logger.error(f"Distributed forcing not found: {forcing_file}")
                 return False
 
             ds = xr.open_dataset(forcing_file)
 
-            precip = ds['precip'].values  # (time, hru)
-            temp = ds['temp'].values
-            pet = ds['pet'].values
+            precip = ds["precip"].values  # (time, hru)
+            temp = ds["temp"].values
+            pet = ds["pet"].values
             time_index = pd.to_datetime(ds.time.values)
-            hru_ids = ds['hru_id'].values if 'hru_id' in ds else np.arange(ds.sizes['hru']) + 1
+            hru_ids = ds["hru_id"].values if "hru_id" in ds else np.arange(ds.sizes["hru"]) + 1
 
             n_times, n_hrus = precip.shape
             self.logger.info(f"Running simulation for {n_times} timesteps x {n_hrus} HRUs")
 
             # Get parameters - convert dict to Parameters object
-            param_dict = self._external_params if self._external_params else self._get_default_params()
+            param_dict = (
+                self._external_params if self._external_params else self._get_default_params()
+            )
             params = self._dict_to_params(param_dict, n_hrus=1)
 
             # Create jFUSE model - use custom config if available, otherwise use create_fuse_model
@@ -522,6 +593,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Error in distributed jFUSE execution: {e}")
             import traceback
+
             self.logger.debug(traceback.format_exc())
             return False
 
@@ -532,10 +604,10 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         if nc_file.exists():
             ds = xr.open_dataset(nc_file)
             forcing = {
-                'precip': ds['precip'].values,
-                'temp': ds['temp'].values,
-                'pet': ds['pet'].values,
-                'time': pd.to_datetime(ds.time.values),
+                "precip": ds["precip"].values,
+                "temp": ds["temp"].values,
+                "pet": ds["pet"].values,
+                "time": pd.to_datetime(ds.time.values),
             }
             ds.close()
         else:
@@ -546,16 +618,16 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
             df = pd.read_csv(csv_file)
             forcing = {
-                'precip': df['precip'].values,
-                'temp': df['temp'].values,
-                'pet': df['pet'].values,
-                'time': pd.to_datetime(df['time']),
+                "precip": df["precip"].values,
+                "temp": df["temp"].values,
+                "pet": df["pet"].values,
+                "time": pd.to_datetime(df["time"]),
             }
 
         # Load observations if available
         obs_file = self.jfuse_forcing_dir / f"{self.domain_name}_observations.csv"
         if obs_file.exists():
-            obs_df = pd.read_csv(obs_file, index_col='datetime', parse_dates=True)
+            obs_df = pd.read_csv(obs_file, index_col="datetime", parse_dates=True)
             obs = obs_df.iloc[:, 0].values
         else:
             obs = None
@@ -570,11 +642,13 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         streamflow_cms = runoff * area_m2 / (1000.0 * UnitConversion.SECONDS_PER_DAY)
 
         # Create DataFrame
-        results_df = pd.DataFrame({
-            'datetime': time_index,
-            'streamflow_mm_day': runoff,
-            'streamflow_cms': streamflow_cms,
-        })
+        results_df = pd.DataFrame(
+            {
+                "datetime": time_index,
+                "streamflow_mm_day": runoff,
+                "streamflow_cms": streamflow_cms,
+            }
+        )
 
         # Save CSV
         csv_file = self.output_dir / f"{self.domain_name}_jfuse_output.csv"
@@ -584,23 +658,23 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         # Save NetCDF
         ds = xr.Dataset(
             data_vars={
-                'streamflow': (['time'], streamflow_cms),
-                'runoff': (['time'], runoff),
+                "streamflow": (["time"], streamflow_cms),
+                "runoff": (["time"], runoff),
             },
             coords={
-                'time': time_index,
+                "time": time_index,
             },
             attrs={
-                'model': 'jFUSE',
-                'model_config': self.model_config_name,
-                'spatial_mode': 'lumped',
-                'domain': self.domain_name,
-                'experiment_id': self.experiment_id,
-                'catchment_area_m2': area_m2,
-            }
+                "model": "jFUSE",
+                "model_config": self.model_config_name,
+                "spatial_mode": "lumped",
+                "domain": self.domain_name,
+                "experiment_id": self.experiment_id,
+                "catchment_area_m2": area_m2,
+            },
         )
-        ds['streamflow'].attrs = {'units': 'm3/s', 'long_name': 'Streamflow'}
-        ds['runoff'].attrs = {'units': 'mm/day', 'long_name': 'Runoff depth'}
+        ds["streamflow"].attrs = {"units": "m3/s", "long_name": "Streamflow"}
+        ds["runoff"].attrs = {"units": "mm/day", "long_name": "Runoff depth"}
 
         nc_file = self.output_dir / f"{self.domain_name}_jfuse_output.nc"
         encoding = create_netcdf_encoding(ds, compression=True)
@@ -608,16 +682,13 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         self.logger.info(f"Saved NetCDF output to: {nc_file}")
 
     def _save_distributed_results(
-        self,
-        runoff: np.ndarray,
-        time_index: pd.DatetimeIndex,
-        hru_ids: np.ndarray
+        self, runoff: np.ndarray, time_index: pd.DatetimeIndex, hru_ids: np.ndarray
     ) -> None:
         """Save distributed simulation results."""
         n_hrus = runoff.shape[1]
 
         # Create time coordinate in seconds since 1970
-        time_seconds = (time_index - pd.Timestamp('1970-01-01')).total_seconds().values
+        time_seconds = (time_index - pd.Timestamp("1970-01-01")).total_seconds().values
 
         # Convert runoff from mm/day to m/s for routing
         runoff_ms = runoff / (1000.0 * UnitConversion.SECONDS_PER_DAY)
@@ -625,30 +696,30 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         # Create Dataset
         ds = xr.Dataset(
             data_vars={
-                'gruId': (['gru'], hru_ids.astype(np.int32)),
-                'runoff': (['time', 'gru'], runoff_ms),
+                "gruId": (["gru"], hru_ids.astype(np.int32)),
+                "runoff": (["time", "gru"], runoff_ms),
             },
             coords={
-                'time': ('time', time_seconds),
-                'gru': ('gru', np.arange(n_hrus)),
+                "time": ("time", time_seconds),
+                "gru": ("gru", np.arange(n_hrus)),
             },
             attrs={
-                'model': 'jFUSE',
-                'model_config': self.model_config_name,
-                'spatial_mode': 'distributed',
-                'domain': self.domain_name,
-                'experiment_id': self.experiment_id,
-                'n_hrus': n_hrus,
-            }
+                "model": "jFUSE",
+                "model_config": self.model_config_name,
+                "spatial_mode": "distributed",
+                "domain": self.domain_name,
+                "experiment_id": self.experiment_id,
+                "n_hrus": n_hrus,
+            },
         )
 
-        ds['gruId'].attrs = {'long_name': 'ID of grouped response unit', 'units': '-'}
-        ds['runoff'].attrs = {'long_name': 'jFUSE runoff', 'units': 'm/s'}
-        ds.time.attrs = {'units': 'seconds since 1970-01-01 00:00:00', 'calendar': 'standard'}
+        ds["gruId"].attrs = {"long_name": "ID of grouped response unit", "units": "-"}
+        ds["runoff"].attrs = {"long_name": "jFUSE runoff", "units": "m/s"}
+        ds.time.attrs = {"units": "seconds since 1970-01-01 00:00:00", "calendar": "standard"}
 
         # Save
         output_file = self.output_dir / f"{self.domain_name}_{self.experiment_id}_runs_def.nc"
-        encoding = create_netcdf_encoding(ds, compression=True, int_vars={'gruId': 'int32'})
+        encoding = create_netcdf_encoding(ds, compression=True, int_vars={"gruId": "int32"})
         ds.to_netcdf(output_file, encoding=encoding)
         self.logger.info(f"Saved distributed results to: {output_file}")
 
@@ -661,7 +732,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             output_file = self.output_dir / f"{self.domain_name}_jfuse_output.nc"
             if output_file.exists():
                 ds = xr.open_dataset(output_file)
-                sim = ds['streamflow'].values
+                sim = ds["streamflow"].values
                 sim_time = pd.to_datetime(ds.time.values)
                 ds.close()
             else:
@@ -670,16 +741,21 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
                     self.logger.warning("No output file found for metrics calculation")
                     return
                 df = pd.read_csv(csv_file)
-                sim = df['streamflow_cms'].values
-                sim_time = pd.to_datetime(df['datetime'])
+                sim = df["streamflow_cms"].values
+                sim_time = pd.to_datetime(df["datetime"])
 
             # Load observations
-            obs_file = self.project_observations_dir / 'streamflow' / 'preprocessed' / f"{self.domain_name}_streamflow_processed.csv"
+            obs_file = (
+                self.project_observations_dir
+                / "streamflow"
+                / "preprocessed"
+                / f"{self.domain_name}_streamflow_processed.csv"
+            )
             if not obs_file.exists():
                 self.logger.warning("Observations not found for metrics")
                 return
 
-            obs_df = pd.read_csv(obs_file, index_col='datetime', parse_dates=True)
+            obs_df = pd.read_csv(obs_file, index_col="datetime", parse_dates=True)
 
             # Align time series
             sim_series = pd.Series(sim, index=sim_time)
@@ -687,7 +763,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
             # Skip warmup
             if len(sim_series) > self.warmup_days:
-                sim_series = sim_series.iloc[self.warmup_days:]
+                sim_series = sim_series.iloc[self.warmup_days :]
 
             # Find common dates
             common_idx = sim_series.index.intersection(obs_series.index)
@@ -727,7 +803,7 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
     # Calibration Support
     # =========================================================================
 
-    def get_loss_function(self, metric: str = 'kge') -> Callable:
+    def get_loss_function(self, metric: str = "kge") -> Callable:
         """
         Get differentiable loss function for calibration.
 
@@ -742,11 +818,11 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
         from jfuse import kge_loss, nse_loss
 
-        if metric.lower() == 'nse':
+        if metric.lower() == "nse":
             return nse_loss
         return kge_loss
 
-    def get_gradient_function(self, metric: str = 'kge') -> Optional[Callable]:
+    def get_gradient_function(self, metric: str = "kge") -> Optional[Callable]:
         """
         Get gradient function for gradient-based calibration.
 
@@ -763,9 +839,9 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         # Load forcing
         forcing, obs = self._load_forcing()
 
-        precip = jnp.array(forcing['precip'].flatten())
-        temp = jnp.array(forcing['temp'].flatten())
-        pet = jnp.array(forcing['pet'].flatten())
+        precip = jnp.array(forcing["precip"].flatten())
+        temp = jnp.array(forcing["temp"].flatten())
+        pet = jnp.array(forcing["pet"].flatten())
 
         if obs is None:
             self.logger.error("Observations required for gradient calibration")
@@ -790,17 +866,13 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             # Handle warmup by slicing the outputs
             runoff_eval = runoff[warmup_days:]
             obs_eval = obs_arr[warmup_days:]
-            if metric.lower() == 'nse':
+            if metric.lower() == "nse":
                 return -jfuse.nse(obs_eval, runoff_eval)
             return -jfuse.kge(obs_eval, runoff_eval)
 
         return jax.grad(loss_fn)
 
-    def evaluate_parameters(
-        self,
-        params: Dict[str, float],
-        metric: str = 'kge'
-    ) -> float:
+    def evaluate_parameters(self, params: Dict[str, float], metric: str = "kge") -> float:
         """
         Evaluate a parameter set.
 
@@ -821,9 +893,9 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
             self.logger.error("Observations required for evaluation")
             return -999.0
 
-        precip = jnp.array(forcing['precip'].flatten())
-        temp = jnp.array(forcing['temp'].flatten())
-        pet = jnp.array(forcing['pet'].flatten())
+        precip = jnp.array(forcing["precip"].flatten())
+        temp = jnp.array(forcing["temp"].flatten())
+        pet = jnp.array(forcing["pet"].flatten())
 
         # Create model and convert params dict to Parameters object
         config_name = self.model_config_name.lower()
@@ -839,8 +911,8 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         runoff = np.array(runoff)
 
         # Skip warmup for both simulation and observations
-        sim = runoff[self.warmup_days:] if len(runoff) > self.warmup_days else runoff
-        obs_arr = obs[self.warmup_days:] if len(obs) > self.warmup_days else obs
+        sim = runoff[self.warmup_days :] if len(runoff) > self.warmup_days else runoff
+        obs_arr = obs[self.warmup_days :] if len(obs) > self.warmup_days else obs
 
         # Align lengths
         min_len = min(len(sim), len(obs_arr))
@@ -857,6 +929,6 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
 
         from symfluence.evaluation.metrics import kge, nse
 
-        if metric.lower() == 'nse':
+        if metric.lower() == "nse":
             return float(nse(obs_arr, sim, transfo=1))
         return float(kge(obs_arr, sim, transfo=1))

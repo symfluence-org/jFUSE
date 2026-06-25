@@ -35,13 +35,13 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
     (per-HRU time series for routing integration).
     """
 
-
     MODEL_NAME = "JFUSE"
+
     def __init__(
         self,
         config: Union[Dict[str, Any], Any],
         logger: logging.Logger,
-        params: Optional[Dict[str, float]] = None
+        params: Optional[Dict[str, float]] = None,
     ):
         """
         Initialize jFUSE preprocessor.
@@ -58,44 +58,74 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         # jFUSE-specific paths
         self.jfuse_setup_dir = self.setup_dir
         self.jfuse_forcing_dir = self.forcing_dir
-        self.jfuse_results_dir = self.project_dir / 'simulations' / self.experiment_id / 'JFUSE'
+        self.jfuse_results_dir = self.project_dir / "simulations" / self.experiment_id / "JFUSE"
 
         # Determine spatial mode
         configured_mode = self._get_config_value(
-            lambda: self.config.model.jfuse.spatial_mode if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            'auto'
+            lambda: (
+                self.config.model.jfuse.spatial_mode
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            "auto",
         )
 
-        if configured_mode in (None, 'auto', 'default'):
-            if self.domain_definition_method == 'delineate':
-                self.spatial_mode = 'distributed'
+        if configured_mode in (None, "auto", "default"):
+            if self.domain_definition_method == "delineate":
+                self.spatial_mode = "distributed"
             else:
-                self.spatial_mode = 'lumped'
+                self.spatial_mode = "lumped"
         else:
             self.spatial_mode = configured_mode
 
         # Enable routing
         self.enable_routing = self._get_config_value(
-            lambda: self.config.model.jfuse.enable_routing if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            False
+            lambda: (
+                self.config.model.jfuse.enable_routing
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            False,
         )
 
         # Timestep configuration
         self.timestep_days = self._get_config_value(
-            lambda: self.config.model.jfuse.timestep_days if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            1.0
+            lambda: (
+                self.config.model.jfuse.timestep_days
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            1.0,
         )
 
         # Model structure
         self.model_config_name = self._get_config_value(
-            lambda: self.config.model.jfuse.model_config_name if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            'prms'
+            lambda: (
+                self.config.model.jfuse.model_config_name
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            "prms",
         )
 
         # Snow enabled
         self.enable_snow = self._get_config_value(
-            lambda: self.config.model.jfuse.enable_snow if self.config.model and hasattr(self.config.model, 'jfuse') and self.config.model.jfuse else None,
-            True
+            lambda: (
+                self.config.model.jfuse.enable_snow
+                if self.config.model
+                and hasattr(self.config.model, "jfuse")
+                and self.config.model.jfuse
+                else None
+            ),
+            True,
         )
 
     def run_preprocessing(self) -> bool:
@@ -146,8 +176,15 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
             time = pd.to_datetime(forcing_ds.time.values)
 
             # Precipitation (check various naming conventions)
-            precip_vars = ['pr', 'precip', 'pptrate', 'prcp', 'precipitation',
-                           'precipitation_flux', 'precipitation_rate']
+            precip_vars = [
+                "pr",
+                "precip",
+                "pptrate",
+                "prcp",
+                "precipitation",
+                "precipitation_flux",
+                "precipitation_rate",
+            ]
             precip = None
             precip_var_name = None
             for var in precip_vars:
@@ -157,12 +194,14 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
                     self.logger.info(f"Using precipitation variable: {var}")
                     break
             if precip is None:
-                self.logger.error(f"Precipitation variable not found. Available: {list(forcing_ds.data_vars)}")
+                self.logger.error(
+                    f"Precipitation variable not found. Available: {list(forcing_ds.data_vars)}"
+                )
                 return False
 
             # Convert precipitation units if needed
-            precip_units = forcing_ds[precip_var_name].attrs.get('units', '').lower()
-            if 'mm s' in precip_units or 'mm/s' in precip_units or 's-1' in precip_units:
+            precip_units = forcing_ds[precip_var_name].attrs.get("units", "").lower()
+            if "mm s" in precip_units or "mm/s" in precip_units or "s-1" in precip_units:
                 # Convert mm/s to mm/day
                 precip = precip * UnitConversion.SECONDS_PER_DAY
                 self.logger.info("Converted precipitation from mm/s to mm/day")
@@ -172,8 +211,15 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
                 self.logger.info("Precipitation values appear to be in mm/s, converting to mm/day")
 
             # Temperature (check various naming conventions)
-            temp_vars = ['temp', 'tas', 'airtemp', 'tair', 'temperature', 'tmean',
-                         'air_temperature']
+            temp_vars = [
+                "temp",
+                "tas",
+                "airtemp",
+                "tair",
+                "temperature",
+                "tmean",
+                "air_temperature",
+            ]
             temp = None
             for var in temp_vars:
                 if var in forcing_ds:
@@ -181,7 +227,9 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
                     self.logger.info(f"Using temperature variable: {var}")
                     break
             if temp is None:
-                self.logger.error(f"Temperature variable not found. Available: {list(forcing_ds.data_vars)}")
+                self.logger.error(
+                    f"Temperature variable not found. Available: {list(forcing_ds.data_vars)}"
+                )
                 return False
 
             # Spatially average multi-dimensional data to 1D time series (lumped mode)
@@ -203,39 +251,40 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
 
             # Handle temporal resolution
             timestep_config = self.get_timestep_config()
-            if timestep_config['time_label'] == 'hourly':
+            if timestep_config["time_label"] == "hourly":
                 # Resample hourly data to daily for jFUSE
                 self.logger.info("Resampling hourly data to daily for jFUSE")
-                forcing_df = pd.DataFrame({
-                    'time': time,
-                    'precip': precip.flatten(),
-                    'temp': temp.flatten(),
-                    'pet': pet.flatten()
-                }).set_index('time')
+                forcing_df = pd.DataFrame(
+                    {
+                        "time": time,
+                        "precip": precip.flatten(),
+                        "temp": temp.flatten(),
+                        "pet": pet.flatten(),
+                    }
+                ).set_index("time")
 
-                forcing_df = forcing_df.resample('D').agg({
-                    'precip': 'sum',
-                    'temp': 'mean',
-                    'pet': 'mean'
-                })
+                forcing_df = forcing_df.resample("D").agg(
+                    {"precip": "sum", "temp": "mean", "pet": "mean"}
+                )
                 forcing_df = forcing_df.reset_index()
             else:
                 # Daily input data
-                forcing_df = pd.DataFrame({
-                    'time': time,
-                    'precip': precip.flatten(),
-                    'temp': temp.flatten(),
-                    'pet': pet.flatten()
-                })
+                forcing_df = pd.DataFrame(
+                    {
+                        "time": time,
+                        "precip": precip.flatten(),
+                        "temp": temp.flatten(),
+                        "pet": pet.flatten(),
+                    }
+                )
 
             # Subset to simulation time window
             time_window = self.get_simulation_time_window()
             if time_window:
                 start_time, end_time = time_window
-                forcing_df['time'] = pd.to_datetime(forcing_df['time'])
+                forcing_df["time"] = pd.to_datetime(forcing_df["time"])
                 forcing_df = forcing_df[
-                    (forcing_df['time'] >= start_time) &
-                    (forcing_df['time'] <= end_time)
+                    (forcing_df["time"] >= start_time) & (forcing_df["time"] <= end_time)
                 ]
 
             # Save forcing file
@@ -244,7 +293,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
             self.logger.info(f"Saved lumped forcing to: {output_file}")
 
             # Also save as NetCDF for consistency
-            self._save_forcing_netcdf(forcing_df, 'lumped')
+            self._save_forcing_netcdf(forcing_df, "lumped")
 
             # Load and save observations if available
             self._prepare_observations()
@@ -254,6 +303,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Error preparing lumped forcing: {e}")
             import traceback
+
             self.logger.debug(traceback.format_exc())
             return False
 
@@ -282,6 +332,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
                 return False
 
             import geopandas as gpd
+
             catchment = gpd.read_file(catchment_path)
             n_hrus = len(catchment)
             self.logger.info(f"Processing forcing for {n_hrus} HRUs")
@@ -290,12 +341,18 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
             time = pd.to_datetime(forcing_ds.time.values)
 
             # Initialize arrays for HRU data
-            hru_ids = catchment[self.hru_id_col].values if self.hru_id_col in catchment.columns else np.arange(n_hrus) + 1
+            hru_ids = (
+                catchment[self.hru_id_col].values
+                if self.hru_id_col in catchment.columns
+                else np.arange(n_hrus) + 1
+            )
 
             # For distributed mode, extract forcing for each HRU
-            if 'hru' in forcing_ds.dims:
+            if "hru" in forcing_ds.dims:
                 # Forcing already per-HRU
-                precip = forcing_ds['pr'].values if 'pr' in forcing_ds else forcing_ds['precip'].values
+                precip = (
+                    forcing_ds["pr"].values if "pr" in forcing_ds else forcing_ds["precip"].values
+                )
                 temp = self._get_temperature_variable(forcing_ds)
                 pet = self._get_pet_distributed(forcing_ds, temp, time)
             else:
@@ -309,33 +366,33 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
 
             # Handle temporal resolution (resample to daily if hourly)
             timestep_config = self.get_timestep_config()
-            if timestep_config['time_label'] == 'hourly':
+            if timestep_config["time_label"] == "hourly":
                 self.logger.info("Resampling hourly data to daily for jFUSE")
                 precip, temp, pet, time = self._resample_to_daily(precip, temp, pet, time)
 
             # Create xarray Dataset for distributed forcing
             ds = xr.Dataset(
                 data_vars={
-                    'precip': (['time', 'hru'], precip),
-                    'temp': (['time', 'hru'], temp),
-                    'pet': (['time', 'hru'], pet),
-                    'hru_id': (['hru'], hru_ids.astype(np.int32)),
+                    "precip": (["time", "hru"], precip),
+                    "temp": (["time", "hru"], temp),
+                    "pet": (["time", "hru"], pet),
+                    "hru_id": (["hru"], hru_ids.astype(np.int32)),
                 },
                 coords={
-                    'time': time,
-                    'hru': np.arange(n_hrus),
+                    "time": time,
+                    "hru": np.arange(n_hrus),
                 },
                 attrs={
-                    'model': 'jFUSE',
-                    'spatial_mode': 'distributed',
-                    'domain': self.domain_name,
-                    'n_hrus': n_hrus,
-                    'model_config': self.model_config_name,
-                    'enable_routing': int(self.enable_routing),
-                    'units_precip': 'mm/day',
-                    'units_temp': 'degC',
-                    'units_pet': 'mm/day',
-                }
+                    "model": "jFUSE",
+                    "spatial_mode": "distributed",
+                    "domain": self.domain_name,
+                    "n_hrus": n_hrus,
+                    "model_config": self.model_config_name,
+                    "enable_routing": int(self.enable_routing),
+                    "units_precip": "mm/day",
+                    "units_temp": "degC",
+                    "units_pet": "mm/day",
+                },
             )
 
             # Subset to simulation time window
@@ -345,7 +402,9 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
                 ds = ds.sel(time=slice(start_time, end_time))
 
             # Save distributed forcing
-            output_file = self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing_distributed.nc"
+            output_file = (
+                self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing_distributed.nc"
+            )
             encoding = create_netcdf_encoding(ds, compression=True)
             ds.to_netcdf(output_file, encoding=encoding)
             self.logger.info(f"Saved distributed forcing to: {output_file}")
@@ -358,6 +417,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Error preparing distributed forcing: {e}")
             import traceback
+
             self.logger.debug(traceback.format_exc())
             return False
 
@@ -366,7 +426,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         try:
             fdp = ForcingDataProcessor(self.config, self.logger)
 
-            if hasattr(self, 'forcing_basin_path') and self.forcing_basin_path.exists():
+            if hasattr(self, "forcing_basin_path") and self.forcing_basin_path.exists():
                 self.logger.info(f"Loading basin-averaged forcing from: {self.forcing_basin_path}")
                 ds = fdp.load_forcing_data(self.forcing_basin_path)
                 if ds is not None:
@@ -393,16 +453,13 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
 
     def _get_temperature_variable(self, ds: xr.Dataset) -> np.ndarray:
         """Extract temperature variable from dataset."""
-        for var in ['temp', 'tas', 'airtemp', 'tair', 'temperature']:
+        for var in ["temp", "tas", "airtemp", "tair", "temperature"]:
             if var in ds:
                 return ds[var].values
         raise ValueError("Temperature variable not found in forcing dataset")
 
     def _get_pet(
-        self,
-        ds: xr.Dataset,
-        temp: np.ndarray,
-        time: pd.DatetimeIndex
+        self, ds: xr.Dataset, temp: np.ndarray, time: pd.DatetimeIndex
     ) -> Optional[np.ndarray]:
         """
         Get or calculate PET (Potential Evapotranspiration).
@@ -416,7 +473,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
             PET array (mm/day) or None if calculation fails.
         """
         # Check for PET in forcing data
-        for var in ['pet', 'pET', 'potEvap', 'evap', 'evspsbl']:
+        for var in ["pet", "pET", "potEvap", "evap", "evspsbl"]:
             if var in ds:
                 self.logger.info(f"Using PET from forcing data (variable: {var})")
                 pet = ds[var].values
@@ -428,13 +485,10 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         return self._calculate_hamon_pet(temp.flatten(), time)
 
     def _get_pet_distributed(
-        self,
-        ds: xr.Dataset,
-        temp: np.ndarray,
-        time: pd.DatetimeIndex
+        self, ds: xr.Dataset, temp: np.ndarray, time: pd.DatetimeIndex
     ) -> np.ndarray:
         """Get or calculate PET for distributed mode."""
-        for var in ['pet', 'pET', 'potEvap', 'evap', 'evspsbl']:
+        for var in ["pet", "pET", "potEvap", "evap", "evspsbl"]:
             if var in ds:
                 pet = ds[var].values
                 if np.nanmean(np.abs(pet)) < 0.01:
@@ -446,17 +500,14 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         pet_1d = self._calculate_hamon_pet(mean_temp, time)
         return np.broadcast_to(pet_1d[:, np.newaxis], temp.shape)
 
-    def _calculate_hamon_pet(
-        self,
-        temp: np.ndarray,
-        time: pd.DatetimeIndex
-    ) -> np.ndarray:
+    def _calculate_hamon_pet(self, temp: np.ndarray, time: pd.DatetimeIndex) -> np.ndarray:
         """Calculate PET using Hamon method."""
         from symfluence.models.mixins.pet_calculator import PETCalculatorMixin
 
         self.logger.info("Calculating PET using Hamon method")
         try:
             import geopandas as gpd
+
             catchment = gpd.read_file(self.get_catchment_path())
             centroid = catchment.to_crs(epsg=4326).union_all().centroid
             lat = centroid.y
@@ -468,9 +519,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         return PETCalculatorMixin.hamon_pet_numpy(temp, doy, lat)
 
     def _spatially_average_to_hrus(
-        self,
-        ds: xr.Dataset,
-        catchment
+        self, ds: xr.Dataset, catchment
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Spatially average gridded forcing to HRUs.
@@ -489,10 +538,10 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         n_times = len(ds.time)
 
         # Get spatial coordinates
-        if 'lat' in ds.coords and 'lon' in ds.coords:
+        if "lat" in ds.coords and "lon" in ds.coords:
             lats = ds.lat.values
             lons = ds.lon.values
-        elif 'y' in ds.coords and 'x' in ds.coords:
+        elif "y" in ds.coords and "x" in ds.coords:
             lats = ds.y.values
             lons = ds.x.values
         else:
@@ -502,15 +551,12 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         res_lat = np.abs(lats[1] - lats[0]) if len(lats) > 1 else 0.1
         res_lon = np.abs(lons[1] - lons[0]) if len(lons) > 1 else 0.1
         transform = rasterio.transform.from_origin(
-            lons.min() - res_lon/2,
-            lats.max() + res_lat/2,
-            res_lon,
-            res_lat
+            lons.min() - res_lon / 2, lats.max() + res_lat / 2, res_lon, res_lat
         )
 
         # Extract variables
-        precip_var = 'pr' if 'pr' in ds else 'precip'
-        temp_var = self._find_var(ds, ['temp', 'tas', 'airtemp', 'tair'])
+        precip_var = "pr" if "pr" in ds else "precip"
+        temp_var = self._find_var(ds, ["temp", "tas", "airtemp", "tair"])
 
         precip_grid = ds[precip_var].values
         temp_grid = ds[temp_var].values
@@ -526,10 +572,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         for i, geom in enumerate(catchment_reproj.geometry):
             try:
                 mask = geometry_mask(
-                    [geom],
-                    out_shape=(len(lats), len(lons)),
-                    transform=transform,
-                    invert=True
+                    [geom], out_shape=(len(lats), len(lons)), transform=transform, invert=True
                 )
 
                 for t in range(n_times):
@@ -560,33 +603,24 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         raise ValueError(f"None of {candidates} found in dataset")
 
     def _resample_to_daily(
-        self,
-        precip: np.ndarray,
-        temp: np.ndarray,
-        pet: np.ndarray,
-        time: pd.DatetimeIndex
+        self, precip: np.ndarray, temp: np.ndarray, pet: np.ndarray, time: pd.DatetimeIndex
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.DatetimeIndex]:
         """Resample hourly data to daily."""
         n_hrus = precip.shape[1] if precip.ndim > 1 else 1
 
         if n_hrus == 1:
-            df = pd.DataFrame({
-                'precip': precip.flatten(),
-                'temp': temp.flatten(),
-                'pet': pet.flatten()
-            }, index=time)
+            df = pd.DataFrame(
+                {"precip": precip.flatten(), "temp": temp.flatten(), "pet": pet.flatten()},
+                index=time,
+            )
 
-            df_daily = df.resample('D').agg({
-                'precip': 'sum',
-                'temp': 'mean',
-                'pet': 'mean'
-            })
+            df_daily = df.resample("D").agg({"precip": "sum", "temp": "mean", "pet": "mean"})
 
             return (  # type: ignore[return-value]
-                np.asarray(df_daily['precip'].values)[:, np.newaxis],
-                np.asarray(df_daily['temp'].values)[:, np.newaxis],
-                np.asarray(df_daily['pet'].values)[:, np.newaxis],
-                df_daily.index
+                np.asarray(df_daily["precip"].values)[:, np.newaxis],
+                np.asarray(df_daily["temp"].values)[:, np.newaxis],
+                np.asarray(df_daily["pet"].values)[:, np.newaxis],
+                df_daily.index,
             )
         else:
             # Multi-HRU case
@@ -595,50 +629,48 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
             pet_daily = []
 
             for i in range(n_hrus):
-                df = pd.DataFrame({
-                    'precip': precip[:, i],
-                    'temp': temp[:, i],
-                    'pet': pet[:, i]
-                }, index=time)
+                df = pd.DataFrame(
+                    {"precip": precip[:, i], "temp": temp[:, i], "pet": pet[:, i]}, index=time
+                )
 
-                df_daily = df.resample('D').agg({
-                    'precip': 'sum',
-                    'temp': 'mean',
-                    'pet': 'mean'
-                })
+                df_daily = df.resample("D").agg({"precip": "sum", "temp": "mean", "pet": "mean"})
 
-                precip_daily.append(df_daily['precip'].values)
-                temp_daily.append(df_daily['temp'].values)
-                pet_daily.append(df_daily['pet'].values)
+                precip_daily.append(df_daily["precip"].values)
+                temp_daily.append(df_daily["temp"].values)
+                pet_daily.append(df_daily["pet"].values)
 
             return (  # type: ignore[return-value]
                 np.column_stack(precip_daily),
                 np.column_stack(temp_daily),
                 np.column_stack(pet_daily),
-                df_daily.index
+                df_daily.index,
             )
 
     def _save_forcing_netcdf(self, forcing_df: pd.DataFrame, mode: str) -> None:
         """Save forcing as NetCDF file."""
         ds = xr.Dataset(
             data_vars={
-                'precip': (['time'], forcing_df['precip'].values),
-                'temp': (['time'], forcing_df['temp'].values),
-                'pet': (['time'], forcing_df['pet'].values),
+                "precip": (["time"], forcing_df["precip"].values),
+                "temp": (["time"], forcing_df["temp"].values),
+                "pet": (["time"], forcing_df["pet"].values),
             },
             coords={
-                'time': pd.to_datetime(forcing_df['time']) if 'time' in forcing_df.columns else forcing_df.index,
+                "time": (
+                    pd.to_datetime(forcing_df["time"])
+                    if "time" in forcing_df.columns
+                    else forcing_df.index
+                ),
             },
             attrs={
-                'model': 'jFUSE',
-                'spatial_mode': mode,
-                'domain': self.domain_name,
-                'model_config': self.model_config_name,
-                'enable_snow': int(self.enable_snow),
-                'units_precip': 'mm/day',
-                'units_temp': 'degC',
-                'units_pet': 'mm/day',
-            }
+                "model": "jFUSE",
+                "spatial_mode": mode,
+                "domain": self.domain_name,
+                "model_config": self.model_config_name,
+                "enable_snow": int(self.enable_snow),
+                "units_precip": "mm/day",
+                "units_temp": "degC",
+                "units_pet": "mm/day",
+            },
         )
 
         output_file = self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing.nc"
@@ -648,7 +680,7 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
 
     def _prepare_observations(self) -> None:
         """Prepare observation data for validation/calibration."""
-        obs_dir = self.project_observations_dir / 'streamflow' / 'preprocessed'
+        obs_dir = self.project_observations_dir / "streamflow" / "preprocessed"
         obs_file = obs_dir / f"{self.domain_name}_streamflow_processed.csv"
 
         if obs_file.exists():
@@ -669,7 +701,9 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
             forcing_dict contains 'precip', 'temp', 'pet' arrays
         """
         if self.spatial_mode == SpatialMode.DISTRIBUTED:
-            forcing_file = self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing_distributed.nc"
+            forcing_file = (
+                self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing_distributed.nc"
+            )
         else:
             forcing_file = self.jfuse_forcing_dir / f"{self.domain_name}_jfuse_forcing.nc"
 
@@ -679,16 +713,16 @@ class JFUSEPreProcessor(BaseModelPreProcessor):
         ds = xr.open_dataset(forcing_file)
 
         forcing = {
-            'precip': ds['precip'].values,
-            'temp': ds['temp'].values,
-            'pet': ds['pet'].values,
-            'time': pd.to_datetime(ds.time.values),
+            "precip": ds["precip"].values,
+            "temp": ds["temp"].values,
+            "pet": ds["pet"].values,
+            "time": pd.to_datetime(ds.time.values),
         }
 
         # Load observations if available
         obs_file = self.jfuse_forcing_dir / f"{self.domain_name}_observations.csv"
         if obs_file.exists():
-            obs_df = pd.read_csv(obs_file, index_col='datetime', parse_dates=True)
+            obs_df = pd.read_csv(obs_file, index_col="datetime", parse_dates=True)
             observations = obs_df.iloc[:, 0].values
         else:
             observations = None

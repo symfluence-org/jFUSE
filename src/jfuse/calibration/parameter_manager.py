@@ -19,6 +19,7 @@ from symfluence.optimization.core.base_parameter_manager import BaseParameterMan
 # Try to import jFUSE parameter bounds
 try:
     from jfuse import PARAM_BOUNDS as JFUSE_PARAM_BOUNDS
+
     HAS_JFUSE = True
 except ImportError:
     HAS_JFUSE = False
@@ -29,58 +30,51 @@ except ImportError:
 # Based on typical ranges from literature and jFUSE documentation
 FALLBACK_PARAM_BOUNDS = {
     # Storage parameters
-    'S1_max': (10.0, 500.0),      # Upper zone storage capacity (mm)
-    'S2_max': (50.0, 2000.0),     # Lower zone storage capacity (mm)
-
+    "S1_max": (10.0, 500.0),  # Upper zone storage capacity (mm)
+    "S2_max": (50.0, 2000.0),  # Lower zone storage capacity (mm)
     # Drainage/flux parameters
-    'ku': (0.01, 0.99),           # Upper layer drainage coefficient
-    'ki': (0.001, 0.5),           # Interflow coefficient
-    'ks': (0.0001, 0.1),          # Baseflow coefficient
-    'kp': (0.001, 0.99),          # Percolation coefficient
-
+    "ku": (0.01, 0.99),  # Upper layer drainage coefficient
+    "ki": (0.001, 0.5),  # Interflow coefficient
+    "ks": (0.0001, 0.1),  # Baseflow coefficient
+    "kp": (0.001, 0.99),  # Percolation coefficient
     # TOPMODEL parameters
-    'n': (0.1, 5.0),              # TOPMODEL exponential parameter
-    'v': (0.001, 0.99),           # Linear reservoir parameter
-
+    "n": (0.1, 5.0),  # TOPMODEL exponential parameter
+    "v": (0.001, 0.99),  # Linear reservoir parameter
     # Surface/saturation area
-    'Ac_max': (0.01, 0.99),       # Maximum saturated area fraction
-
+    "Ac_max": (0.01, 0.99),  # Maximum saturated area fraction
     # Snow parameters
-    'T_melt': (-5.0, 5.0),        # Threshold temperature for snowmelt (C)
-    'melt_rate': (1.0, 10.0),     # Degree-day factor (mm/C/day)
-    'T_snow': (-3.0, 3.0),        # Snow/rain threshold temperature (C)
-
+    "T_melt": (-5.0, 5.0),  # Threshold temperature for snowmelt (C)
+    "melt_rate": (1.0, 10.0),  # Degree-day factor (mm/C/day)
+    "T_snow": (-3.0, 3.0),  # Snow/rain threshold temperature (C)
     # Evapotranspiration
-    'c_pet': (0.5, 1.5),          # PET correction factor
-    'soil_pet': (0.1, 1.0),       # Soil moisture threshold for ET
-
+    "c_pet": (0.5, 1.5),  # PET correction factor
+    "soil_pet": (0.1, 1.0),  # Soil moisture threshold for ET
     # Surface runoff
-    'sat_threshold': (0.0, 1.0),  # Saturation threshold for surface runoff
-
+    "sat_threshold": (0.0, 1.0),  # Saturation threshold for surface runoff
     # Routing (if used)
-    'K': (0.5, 10.0),             # Muskingum K (travel time)
-    'X': (0.0, 0.5),              # Muskingum X (weighting factor)
+    "K": (0.5, 10.0),  # Muskingum K (travel time)
+    "X": (0.0, 0.5),  # Muskingum X (weighting factor)
 }
 
 # Default parameter values (mid-range of bounds)
 FALLBACK_DEFAULT_PARAMS = {
-    'S1_max': 100.0,
-    'S2_max': 500.0,
-    'ku': 0.5,
-    'ki': 0.1,
-    'ks': 0.01,
-    'kp': 0.1,
-    'n': 1.0,
-    'v': 0.5,
-    'Ac_max': 0.5,
-    'T_melt': 0.0,
-    'melt_rate': 3.0,
-    'T_snow': 0.0,
-    'c_pet': 1.0,
-    'soil_pet': 0.5,
-    'sat_threshold': 0.5,
-    'K': 2.0,
-    'X': 0.2,
+    "S1_max": 100.0,
+    "S2_max": 500.0,
+    "ku": 0.5,
+    "ki": 0.1,
+    "ks": 0.01,
+    "kp": 0.1,
+    "n": 1.0,
+    "v": 0.5,
+    "Ac_max": 0.5,
+    "T_melt": 0.0,
+    "melt_rate": 3.0,
+    "T_snow": 0.0,
+    "c_pet": 1.0,
+    "soil_pet": 0.5,
+    "sat_threshold": 0.5,
+    "K": 2.0,
+    "X": 0.2,
 }
 
 # Get actual bounds (jFUSE if available, else fallback)
@@ -90,6 +84,7 @@ PARAM_BOUNDS = JFUSE_PARAM_BOUNDS if HAS_JFUSE else FALLBACK_PARAM_BOUNDS
 if HAS_JFUSE:
     try:
         from jfuse import Parameters
+
         _default_params_obj = Parameters.default(n_hrus=1)
         # Extract scalar values from Parameters object
         DEFAULT_PARAMS = {}
@@ -122,12 +117,7 @@ class JFUSEParameterManager(BaseParameterManager):
     (e.g. S1_max_a, S1_max_b) instead of raw FUSE parameters.
     """
 
-    def __init__(
-        self,
-        config: Dict,
-        logger: logging.Logger,
-        jfuse_settings_dir: Path
-    ):
+    def __init__(self, config: Dict, logger: logging.Logger, jfuse_settings_dir: Path):
         """
         Initialize parameter manager.
 
@@ -138,21 +128,29 @@ class JFUSEParameterManager(BaseParameterManager):
         """
         super().__init__(config, logger, jfuse_settings_dir)
 
-        self.domain_name = self._get_config_value(lambda: self.config.domain.name, default=None, dict_key='DOMAIN_NAME')
-        self.experiment_id = self._get_config_value(lambda: self.config.domain.experiment_id, default=None, dict_key='EXPERIMENT_ID')
+        self.domain_name = self._get_config_value(
+            lambda: self.config.domain.name, default=None, dict_key="DOMAIN_NAME"
+        )
+        self.experiment_id = self._get_config_value(
+            lambda: self.config.domain.experiment_id, default=None, dict_key="EXPERIMENT_ID"
+        )
 
         # Check for transfer function mode
-        self._use_transfer_functions = bool(self._get_jfuse_cfg('USE_TRANSFER_FUNCTIONS', default=False))
+        self._use_transfer_functions = bool(
+            self._get_jfuse_cfg("USE_TRANSFER_FUNCTIONS", default=False)
+        )
         self._tf_config = None
 
         # Parse jFUSE parameters to calibrate from config
-        jfuse_params_str = self._get_jfuse_cfg('PARAMS_TO_CALIBRATE')
+        jfuse_params_str = self._get_jfuse_cfg("PARAMS_TO_CALIBRATE")
         # Handle None, empty string, or 'default' as signal to use default parameter list
-        if jfuse_params_str is None or jfuse_params_str == '' or jfuse_params_str == 'default':
+        if jfuse_params_str is None or jfuse_params_str == "" or jfuse_params_str == "default":
             # Default 14 parameters with non-zero gradients for prms_gradient config
-            jfuse_params_str = 'S1_max,S2_max,ku,ki,ks,n,Ac_max,b,f_rchr,T_rain,T_melt,MFMAX,MFMIN,smooth_frac'
+            jfuse_params_str = (
+                "S1_max,S2_max,ku,ki,ks,n,Ac_max,b,f_rchr,T_rain,T_melt,MFMAX,MFMIN,smooth_frac"
+            )
 
-        self.jfuse_params = [p.strip() for p in str(jfuse_params_str).split(',') if p.strip()]
+        self.jfuse_params = [p.strip() for p in str(jfuse_params_str).split(",") if p.strip()]
 
         # When the glacier module is enabled, make its parameters calibratable
         # (they are valid PARAM_NAMES, appended after the core 30). Controlled by
@@ -160,10 +158,9 @@ class JFUSEParameterManager(BaseParameterManager):
         # entirely when glacier is off so non-glacier domains keep their param
         # count. In transfer-function mode each gets its own _a/_b coefficients,
         # spatially distributing the ice degree-day factor (clean vs debris ice).
-        if bool(self._get_jfuse_cfg('ENABLE_GLACIER', default=False)):
-            glac_str = self._get_jfuse_cfg(
-                'GLACIER_CALIB_PARAMS', default='DDF_ice,T_ice,K_glac')
-            for gp in [p.strip() for p in str(glac_str).split(',') if p.strip()]:
+        if bool(self._get_jfuse_cfg("ENABLE_GLACIER", default=False)):
+            glac_str = self._get_jfuse_cfg("GLACIER_CALIB_PARAMS", default="DDF_ice,T_ice,K_glac")
+            for gp in [p.strip() for p in str(glac_str).split(",") if p.strip()]:
                 if gp not in self.jfuse_params:
                     self.jfuse_params.append(gp)
 
@@ -177,13 +174,13 @@ class JFUSEParameterManager(BaseParameterManager):
         self.calibration_params = self.jfuse_params
 
         # Apply custom bounds from config if provided (tuple storage for TF mode)
-        custom_bounds = self._get_jfuse_cfg('PARAM_BOUNDS', default={})
+        custom_bounds = self._get_jfuse_cfg("PARAM_BOUNDS", default={})
         if custom_bounds:
             for param_name, bnd in custom_bounds.items():
                 if isinstance(bnd, (list, tuple)) and len(bnd) == 2:
                     self.all_bounds[param_name] = (float(bnd[0]), float(bnd[1]))
-                elif isinstance(bnd, dict) and 'min' in bnd and 'max' in bnd:
-                    self.all_bounds[param_name] = (float(bnd['min']), float(bnd['max']))
+                elif isinstance(bnd, dict) and "min" in bnd and "max" in bnd:
+                    self.all_bounds[param_name] = (float(bnd["min"]), float(bnd["max"]))
 
         # Initialize transfer function mode if enabled
         if self._use_transfer_functions:
@@ -197,9 +194,10 @@ class JFUSEParameterManager(BaseParameterManager):
         # _get_parameter_names / _load_parameter_bounds append LAST, forming a
         # trailing block the worker can split off (works in both TF + direct mode).
         self._lake_calib_params: List[str] = []
-        if bool(self._get_jfuse_cfg('CALIBRATE_LAKES', default=False)):
+        if bool(self._get_jfuse_cfg("CALIBRATE_LAKES", default=False)):
             try:
                 from jfuse.coupled import LAKE_RULE_NAMES, LAKE_RULE_BOUNDS, LAKE_RULE_DEFAULTS
+
                 for name in LAKE_RULE_NAMES:
                     self._lake_calib_params.append(name)
                     self.all_bounds[name] = LAKE_RULE_BOUNDS[name]
@@ -207,7 +205,9 @@ class JFUSEParameterManager(BaseParameterManager):
                 self.calibration_params = list(self.calibration_params) + list(LAKE_RULE_NAMES)
                 self.logger.info(
                     "Lake operating-rule calibration ON: +%d params %s",
-                    len(LAKE_RULE_NAMES), list(LAKE_RULE_NAMES))
+                    len(LAKE_RULE_NAMES),
+                    list(LAKE_RULE_NAMES),
+                )
             except Exception:  # noqa: BLE001 — lake calibration optional
                 self.logger.debug("Could not append lake calibration params", exc_info=True)
 
@@ -218,7 +218,7 @@ class JFUSEParameterManager(BaseParameterManager):
         and stores bare keys in model_extra as {type: value} dicts.
         This tries all access paths.
         """
-        flat_key = f'JFUSE_{bare_key.upper()}'
+        flat_key = f"JFUSE_{bare_key.upper()}"
 
         # Try _get_config_value first (handles dict configs and overrides)
         val = self._get_config_value(lambda: None, default=None, dict_key=flat_key)
@@ -227,9 +227,9 @@ class JFUSEParameterManager(BaseParameterManager):
 
         # Try model_extra paths (SymfluenceConfig from_file)
         cfg = self.config
-        if hasattr(cfg, 'model_extra') and cfg.model_extra:
+        if hasattr(cfg, "model_extra") and cfg.model_extra:
             # Try _extra dict
-            extra = cfg.model_extra.get('_extra', {})
+            extra = cfg.model_extra.get("_extra", {})
             if isinstance(extra, dict):
                 val = extra.get(flat_key)
                 if val is not None:
@@ -258,15 +258,17 @@ class JFUSEParameterManager(BaseParameterManager):
         """Initialize transfer function mode from config."""
         from .transfer_functions import JaxTransferFunctionConfig
 
-        attributes_path = self._get_config_value(lambda: None, default=None, dict_key='JFUSE_ATTRIBUTES_PATH')
+        attributes_path = self._get_config_value(
+            lambda: None, default=None, dict_key="JFUSE_ATTRIBUTES_PATH"
+        )
         if not attributes_path:
-            self.logger.error(
-                "JFUSE_USE_TRANSFER_FUNCTIONS=true but JFUSE_ATTRIBUTES_PATH not set"
-            )
+            self.logger.error("JFUSE_USE_TRANSFER_FUNCTIONS=true but JFUSE_ATTRIBUTES_PATH not set")
             self._use_transfer_functions = False
             return
 
-        b_bounds_cfg = self._get_config_value(lambda: None, default=(-5.0, 5.0), dict_key='JFUSE_TF_B_BOUNDS')
+        b_bounds_cfg = self._get_config_value(
+            lambda: None, default=(-5.0, 5.0), dict_key="JFUSE_TF_B_BOUNDS"
+        )
         if isinstance(b_bounds_cfg, list):
             b_bounds_cfg = tuple(b_bounds_cfg)
 
@@ -289,8 +291,8 @@ class JFUSEParameterManager(BaseParameterManager):
         for i, pname in enumerate(self.jfuse_params):
             lo, hi = PARAM_BOUNDS[pname]
             default_val = self.defaults.get(pname, (lo + hi) / 2.0)
-            self.defaults[f'{pname}_a'] = default_val
-            self.defaults[f'{pname}_b'] = 0.0
+            self.defaults[f"{pname}_a"] = default_val
+            self.defaults[f"{pname}_b"] = 0.0
 
         self.logger.info(
             f"Transfer function mode enabled: {self._tf_config.n_coefficients} "
@@ -318,7 +320,7 @@ class JFUSEParameterManager(BaseParameterManager):
         Lake operating-rule multipliers (when JFUSE_CALIBRATE_LAKES is set) are
         appended as a trailing block in both TF and direct modes.
         """
-        lake = list(getattr(self, '_lake_calib_params', []) or [])
+        lake = list(getattr(self, "_lake_calib_params", []) or [])
         if self._use_transfer_functions and self._tf_config is not None:
             return list(self._tf_config.coefficient_names) + lake
         return list(self.jfuse_params) + lake
@@ -331,7 +333,7 @@ class JFUSEParameterManager(BaseParameterManager):
         """
         if self._use_transfer_functions and self._tf_config is not None:
             bounds = {
-                name: {'min': bnd[0], 'max': bnd[1]}
+                name: {"min": bnd[0], "max": bnd[1]}
                 for name, bnd in zip(
                     self._tf_config.coefficient_names,
                     self._tf_config.coefficient_bounds,
@@ -339,16 +341,18 @@ class JFUSEParameterManager(BaseParameterManager):
             }
         else:
             bounds = {
-                name: {'min': self.all_bounds[name][0], 'max': self.all_bounds[name][1]}
+                name: {"min": self.all_bounds[name][0], "max": self.all_bounds[name][1]}
                 for name in self.jfuse_params
                 if name in self.all_bounds
             }
         # Lake operating-rule multipliers (trailing block) in both modes.
-        for name in getattr(self, '_lake_calib_params', []) or []:
+        for name in getattr(self, "_lake_calib_params", []) or []:
             if name in self.all_bounds:
-                bounds[name] = {'min': self.all_bounds[name][0], 'max': self.all_bounds[name][1]}
+                bounds[name] = {"min": self.all_bounds[name][0], "max": self.all_bounds[name][1]}
         # Apply config overrides with transform preservation
-        config_bounds = self._get_config_value(lambda: None, default={}, dict_key='JFUSE_PARAM_BOUNDS')
+        config_bounds = self._get_config_value(
+            lambda: None, default={}, dict_key="JFUSE_PARAM_BOUNDS"
+        )
         if config_bounds:
             self._apply_config_bounds_override(bounds, config_bounds)
         return bounds
@@ -362,9 +366,11 @@ class JFUSEParameterManager(BaseParameterManager):
 
     def get_initial_parameters(self) -> Optional[Dict[str, float]]:
         """Get initial parameter values from config or defaults."""
-        initial_params = self._get_config_value(lambda: None, default='default', dict_key='JFUSE_INITIAL_PARAMS')
+        initial_params = self._get_config_value(
+            lambda: None, default="default", dict_key="JFUSE_INITIAL_PARAMS"
+        )
 
-        if initial_params == 'default':
+        if initial_params == "default":
             self.logger.debug("Using standard jFUSE defaults for initial parameters")
             # In TF mode, return coefficient defaults (S1_max_a, S1_max_b, ...)
             # Use the full calibration name list (includes appended lake
@@ -372,12 +378,12 @@ class JFUSEParameterManager(BaseParameterManager):
             return {p: self.defaults.get(p, 0.0) for p in self._get_parameter_names()}
 
         # Parse string-based initial params if provided
-        if isinstance(initial_params, str) and initial_params != 'default':
+        if isinstance(initial_params, str) and initial_params != "default":
             try:
                 param_dict = {}
-                for pair in initial_params.split(','):
-                    if '=' in pair:
-                        k, v = pair.split('=')
+                for pair in initial_params.split(","):
+                    if "=" in pair:
+                        k, v = pair.split("=")
                         param_dict[k.strip()] = float(v.strip())
                 return param_dict
             except Exception as e:  # noqa: BLE001
@@ -414,7 +420,7 @@ class JFUSEParameterManager(BaseParameterManager):
         for name in self.calibration_params:
             if name in self.all_bounds:
                 bounds = self.all_bounds[name]
-                result[name] = {'min': bounds[0], 'max': bounds[1]}
+                result[name] = {"min": bounds[0], "max": bounds[1]}
         return result
 
     def get_bounds_array(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -502,10 +508,7 @@ class JFUSEParameterManager(BaseParameterManager):
         Returns:
             Array of values in calibration parameter order
         """
-        return np.array([
-            params.get(p, self.defaults.get(p, 0.0))
-            for p in self.calibration_params
-        ])
+        return np.array([params.get(p, self.defaults.get(p, 0.0)) for p in self.calibration_params])
 
     def validate(self, params: Dict[str, float]) -> Tuple[bool, List[str]]:
         """
@@ -563,7 +566,7 @@ class JFUSEParameterManager(BaseParameterManager):
 
 
 def get_jfuse_calibration_bounds(
-    params_to_calibrate: Optional[List[str]] = None
+    params_to_calibrate: Optional[List[str]] = None,
 ) -> Dict[str, Dict[str, float]]:
     """
     Convenience function to get jFUSE calibration bounds.
@@ -577,82 +580,91 @@ def get_jfuse_calibration_bounds(
     """
     if params_to_calibrate is None:
         params_to_calibrate = [
-            'S1_max', 'S2_max', 'ku', 'ki', 'ks',
-            'n', 'v', 'Ac_max', 'T_melt', 'melt_rate'
+            "S1_max",
+            "S2_max",
+            "ku",
+            "ki",
+            "ks",
+            "n",
+            "v",
+            "Ac_max",
+            "T_melt",
+            "melt_rate",
         ]
 
     return {
-        name: {'min': PARAM_BOUNDS[name][0], 'max': PARAM_BOUNDS[name][1]}
-        for name in params_to_calibrate if name in PARAM_BOUNDS
+        name: {"min": PARAM_BOUNDS[name][0], "max": PARAM_BOUNDS[name][1]}
+        for name in params_to_calibrate
+        if name in PARAM_BOUNDS
     }
 
 
 # Parameter descriptions for documentation/UI
 PARAM_DESCRIPTIONS = {
-    'S1_max': {
-        'name': 'Upper Storage Capacity',
-        'description': 'Maximum water storage in upper zone',
-        'unit': 'mm',
-        'category': 'storage'
+    "S1_max": {
+        "name": "Upper Storage Capacity",
+        "description": "Maximum water storage in upper zone",
+        "unit": "mm",
+        "category": "storage",
     },
-    'S2_max': {
-        'name': 'Lower Storage Capacity',
-        'description': 'Maximum water storage in lower zone',
-        'unit': 'mm',
-        'category': 'storage'
+    "S2_max": {
+        "name": "Lower Storage Capacity",
+        "description": "Maximum water storage in lower zone",
+        "unit": "mm",
+        "category": "storage",
     },
-    'ku': {
-        'name': 'Upper Drainage',
-        'description': 'Drainage coefficient from upper zone',
-        'unit': '1/day',
-        'category': 'flux'
+    "ku": {
+        "name": "Upper Drainage",
+        "description": "Drainage coefficient from upper zone",
+        "unit": "1/day",
+        "category": "flux",
     },
-    'ki': {
-        'name': 'Interflow Rate',
-        'description': 'Interflow coefficient',
-        'unit': '1/day',
-        'category': 'flux'
+    "ki": {
+        "name": "Interflow Rate",
+        "description": "Interflow coefficient",
+        "unit": "1/day",
+        "category": "flux",
     },
-    'ks': {
-        'name': 'Baseflow Rate',
-        'description': 'Baseflow recession coefficient',
-        'unit': '1/day',
-        'category': 'flux'
+    "ks": {
+        "name": "Baseflow Rate",
+        "description": "Baseflow recession coefficient",
+        "unit": "1/day",
+        "category": "flux",
     },
-    'n': {
-        'name': 'TOPMODEL Decay',
-        'description': 'Exponential decay parameter for TOPMODEL',
-        'unit': '-',
-        'category': 'topmodel'
+    "n": {
+        "name": "TOPMODEL Decay",
+        "description": "Exponential decay parameter for TOPMODEL",
+        "unit": "-",
+        "category": "topmodel",
     },
-    'v': {
-        'name': 'Linear Rate',
-        'description': 'Linear baseflow rate parameter',
-        'unit': '-',
-        'category': 'flux'
+    "v": {
+        "name": "Linear Rate",
+        "description": "Linear baseflow rate parameter",
+        "unit": "-",
+        "category": "flux",
     },
-    'Ac_max': {
-        'name': 'Max Saturated Area',
-        'description': 'Maximum fraction of saturated contributing area',
-        'unit': '-',
-        'category': 'surface'
+    "Ac_max": {
+        "name": "Max Saturated Area",
+        "description": "Maximum fraction of saturated contributing area",
+        "unit": "-",
+        "category": "surface",
     },
-    'T_melt': {
-        'name': 'Melt Threshold',
-        'description': 'Temperature threshold for snowmelt',
-        'unit': 'C',
-        'category': 'snow'
+    "T_melt": {
+        "name": "Melt Threshold",
+        "description": "Temperature threshold for snowmelt",
+        "unit": "C",
+        "category": "snow",
     },
-    'melt_rate': {
-        'name': 'Degree-Day Factor',
-        'description': 'Snowmelt rate per degree above threshold',
-        'unit': 'mm/C/day',
-        'category': 'snow'
+    "melt_rate": {
+        "name": "Degree-Day Factor",
+        "description": "Snowmelt rate per degree above threshold",
+        "unit": "mm/C/day",
+        "category": "snow",
     },
-    'T_snow': {
-        'name': 'Snow Threshold',
-        'description': 'Temperature threshold for snow/rain partitioning',
-        'unit': 'C',
-        'category': 'snow'
+    "T_snow": {
+        "name": "Snow Threshold",
+        "description": "Temperature threshold for snow/rain partitioning",
+        "unit": "C",
+        "category": "snow",
     },
 }

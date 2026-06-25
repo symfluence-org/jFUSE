@@ -36,11 +36,12 @@ from .routing import (
 
 class CoupledState(NamedTuple):
     """Combined state for coupled model.
-    
+
     Attributes:
         fuse_state: FUSE model state
         router_Q: Discharge at each reach (m³/s)
     """
+
     fuse_state: FUSEState
     router_Q: Array
 
@@ -59,6 +60,7 @@ class LakeRuleParams(NamedTuple):
 
     All AD-active. Applied only to reaches flagged ``is_lake``.
     """
+
     q_ref_mult: Array
     q_min_frac: Array
     exp: Array
@@ -96,7 +98,9 @@ def build_lake_rules(values) -> "LakeRuleParams":
     return LakeRuleParams(values[0], values[1], values[2], values[3])
 
 
-def apply_lake_rules(network: NetworkArrays, lake_rules: Optional["LakeRuleParams"]) -> NetworkArrays:
+def apply_lake_rules(
+    network: NetworkArrays, lake_rules: Optional["LakeRuleParams"]
+) -> NetworkArrays:
     """Apply global operating-rule multipliers to a network's lake reaches.
 
     Returns ``network`` unchanged when ``lake_rules`` is None or the network has
@@ -126,6 +130,7 @@ class CoupledParams(NamedTuple):
         geometry: Optional geometry parameters (width_coef, etc.)
         lake_rules: Optional global lake/reservoir operating-rule multipliers.
     """
+
     fuse_params: FUSEParameters
     manning_n: Array
     width_coef: Optional[Array] = None
@@ -141,14 +146,14 @@ def runoff_to_inflow(
     dt_seconds: float = 86400.0,
 ) -> Array:
     """Convert runoff depth to volumetric flow rate.
-    
+
     Q [m³/s] = runoff [mm/day] * area [m²] / 1000 / 86400
-    
+
     Args:
         runoff_mm: Runoff in mm/day [n_timesteps, n_hrus]
         areas_m2: HRU areas in m² [n_hrus]
         dt_seconds: Timestep in seconds (default 1 day)
-        
+
     Returns:
         Volumetric flow rate in m³/s [n_timesteps, n_hrus]
     """
@@ -174,12 +179,12 @@ def coupled_simulate(
     glacier_frac: Optional[Array] = None,
 ) -> Tuple[Array, Array, FUSEState]:
     """Run coupled FUSE + routing simulation.
-    
+
     This is the main simulation function that:
     1. Runs FUSE to generate runoff for each HRU
     2. Converts runoff to lateral inflow (m³/s)
     3. Routes through the river network
-    
+
     Args:
         forcing_series: Tuple of (precip, pet, temp) arrays [n_timesteps, n_hrus]
         fuse_params: FUSE model parameters
@@ -198,7 +203,7 @@ def coupled_simulate(
         n_substeps: Number of Muskingum sub-steps per FUSE timestep for routing
             stability (see route_network). Default 1 (no sub-stepping).
         start_doy: Starting day of year
-        
+
     Returns:
         Tuple of (outlet_Q, runoff, final_fuse_state)
         - outlet_Q: Outlet discharge [n_timesteps] in m³/s
@@ -212,15 +217,15 @@ def coupled_simulate(
     # Route in step with the inflow series: one routing step per FUSE timestep.
     if routing_dt is None:
         routing_dt = fuse_dt * 86400.0
-    
+
     # Initialize FUSE state
     if initial_fuse_state is None:
         initial_fuse_state = FUSEState.default(n_hrus)
-    
+
     # Initialize routing
     if initial_Q is None:
         initial_Q = jnp.full(n_reaches, 0.1)
-    
+
     # Run FUSE simulation (glacier_frac, when given and enabled in fuse_config,
     # area-weights each HRU's runoff between soil column and glacier component).
     runoff, final_fuse_state = fuse_simulate(
@@ -232,7 +237,7 @@ def coupled_simulate(
         start_doy,
         glacier_frac=glacier_frac,
     )
-    
+
     # Convert runoff to lateral inflow (m³/s)
     # Assume HRU i maps to reach i (can be customized via hru_to_reach mapping)
     lateral_inflow = runoff_to_inflow(runoff, hru_areas, fuse_dt * 86400.0)
@@ -251,22 +256,23 @@ def coupled_simulate(
         lateral_inflow = jnp.pad(
             lateral_inflow,
             ((0, 0), (0, n_reaches - n_hrus)),
-            mode='constant',
+            mode="constant",
             constant_values=0.0,
         )
     elif n_hrus > n_reaches:
         # Aggregate excess HRUs to last reach to preserve water balance
         # This maintains total water volume while fitting to network structure
-        base_inflow = lateral_inflow[:, :n_reaches - 1]
-        excess_inflow = jnp.sum(lateral_inflow[:, n_reaches - 1:], axis=1, keepdims=True)
+        base_inflow = lateral_inflow[:, : n_reaches - 1]
+        excess_inflow = jnp.sum(lateral_inflow[:, n_reaches - 1 :], axis=1, keepdims=True)
         lateral_inflow = jnp.concatenate([base_inflow, excess_inflow], axis=1)
-    
+
     # Update network with current manning_n
     # Create updated network arrays with calibrated Manning's n
     updated_network = network._replace(manning_n=manning_n)
-    
+
     # Route through network
     from .routing import route_network
+
     outlet_Q = route_network(
         lateral_inflow, updated_network, routing_dt, initial_Q, n_substeps=n_substeps
     )
@@ -309,22 +315,28 @@ def coupled_simulate_full(
         initial_Q = jnp.full(n_reaches, 0.1)
 
     runoff, final_fuse_state = fuse_simulate(
-        forcing_series, initial_fuse_state, fuse_params, fuse_config,
-        fuse_dt, start_doy, glacier_frac=glacier_frac,
+        forcing_series,
+        initial_fuse_state,
+        fuse_params,
+        fuse_config,
+        fuse_dt,
+        start_doy,
+        glacier_frac=glacier_frac,
     )
 
     lateral_inflow = runoff_to_inflow(runoff, hru_areas, fuse_dt * 86400.0)
     if n_hrus < n_reaches:
         lateral_inflow = jnp.pad(
-            lateral_inflow, ((0, 0), (0, n_reaches - n_hrus)),
-            mode='constant', constant_values=0.0)
+            lateral_inflow, ((0, 0), (0, n_reaches - n_hrus)), mode="constant", constant_values=0.0
+        )
     elif n_hrus > n_reaches:
-        base_inflow = lateral_inflow[:, :n_reaches - 1]
-        excess_inflow = jnp.sum(lateral_inflow[:, n_reaches - 1:], axis=1, keepdims=True)
+        base_inflow = lateral_inflow[:, : n_reaches - 1]
+        excess_inflow = jnp.sum(lateral_inflow[:, n_reaches - 1 :], axis=1, keepdims=True)
         lateral_inflow = jnp.concatenate([base_inflow, excess_inflow], axis=1)
 
     updated_network = network._replace(manning_n=manning_n)
     from .routing import route_network_full
+
     outlet_Q, Q_all = route_network_full(
         lateral_inflow, updated_network, routing_dt, initial_Q, n_substeps=n_substeps
     )
@@ -349,7 +361,7 @@ def _resolve_n_substeps(
     max_substeps = int(max_substeps)
     if network is None or max_substeps <= 1:
         return 1
-    if method == 'fixed':
+    if method == "fixed":
         return max(1, max_substeps)
 
     # adaptive: estimate the shortest reach travel time at a reference discharge.
@@ -372,12 +384,12 @@ def _resolve_n_substeps(
 
 class CoupledModel(eqx.Module):
     """Coupled FUSE + routing model for end-to-end simulation and calibration.
-    
+
     This class provides a convenient interface for:
     - Running coupled simulations
     - Computing gradients for calibration
     - Loading from NetCDF files
-    
+
     Attributes:
         fuse_model: FUSE rainfall-runoff model
         router: Muskingum-Cunge router
@@ -385,6 +397,7 @@ class CoupledModel(eqx.Module):
         hru_areas: HRU contributing areas (m²)
         hru_to_reach: Mapping from HRU indices to reach indices
     """
+
     fuse_model: FUSEModel
     network: NetworkArrays
     hru_areas: Array
@@ -399,12 +412,12 @@ class CoupledModel(eqx.Module):
         hru_areas: Array = None,
         n_hrus: int = 1,
         routing_dt: Optional[float] = None,
-        routing_substep_method: str = 'adaptive',
+        routing_substep_method: str = "adaptive",
         routing_max_substeps: int = 10,
         glacier_frac: Optional[Array] = None,
     ):
         """Initialize coupled model.
-        
+
         Args:
             fuse_config: FUSE model configuration (default PRMS)
             network: River network topology
@@ -419,10 +432,10 @@ class CoupledModel(eqx.Module):
         """
         if fuse_config is None:
             fuse_config = PRMS_CONFIG
-        
+
         if hru_areas is None:
             hru_areas = jnp.ones(n_hrus) * 1e6  # Default 1 km²
-        
+
         self.fuse_model = FUSEModel(config=fuse_config, n_hrus=len(hru_areas))
         self.network = network
         self.hru_areas = hru_areas
@@ -437,7 +450,7 @@ class CoupledModel(eqx.Module):
             network,
             routing_dt if routing_dt is not None else 86400.0,
         )
-    
+
     @classmethod
     def from_netcdf(
         cls,
@@ -446,38 +459,47 @@ class CoupledModel(eqx.Module):
         config: ModelConfig = None,
     ) -> "CoupledModel":
         """Create model from NetCDF files.
-        
+
         Args:
             forcing_path: Path to forcing NetCDF (contains HRU info)
             network_path: Path to network topology NetCDF
             config: FUSE model configuration
-            
+
         Returns:
             Configured CoupledModel
         """
         from .io import load_forcing, load_network
-        
+
         # Load data
         forcing_data = load_forcing(forcing_path)
         network, hru_areas = load_network(network_path)
-        
+
+        # Forcing and network must describe the same set of HRUs; catch a
+        # mismatch here rather than failing deep inside simulate().
+        if forcing_data.n_hrus != len(hru_areas):
+            raise ValueError(
+                f"Forcing HRU count ({forcing_data.n_hrus}) does not match "
+                f"network HRU count ({len(hru_areas)}); check that "
+                f"{forcing_path!r} and {network_path!r} are aligned."
+            )
+
         return cls(
             fuse_config=config,
             network=network.to_arrays(),
             hru_areas=hru_areas,
             n_hrus=len(hru_areas),
         )
-    
+
     def default_params(self) -> CoupledParams:
         """Get default parameters for both FUSE and routing."""
         fuse_params = self.fuse_model.default_params()
         manning_n = self.network.manning_n
-        
+
         return CoupledParams(
             fuse_params=fuse_params,
             manning_n=manning_n,
         )
-    
+
     def simulate(
         self,
         forcing_series: Tuple[Array, Array, Array],
@@ -486,13 +508,13 @@ class CoupledModel(eqx.Module):
         start_doy: int = 1,
     ) -> Tuple[Array, Array]:
         """Run coupled simulation.
-        
+
         Args:
             forcing_series: Tuple of (precip, pet, temp) [n_timesteps, n_hrus]
             params: Coupled parameters
             initial_state: Initial state (optional)
             start_doy: Starting day of year
-            
+
         Returns:
             Tuple of (outlet_Q, runoff) where:
             - outlet_Q: [n_timesteps] in m³/s
@@ -500,15 +522,15 @@ class CoupledModel(eqx.Module):
         """
         initial_fuse_state = None
         initial_Q = None
-        
+
         if initial_state is not None:
             initial_fuse_state = initial_state.fuse_state
             initial_Q = initial_state.router_Q
-        
+
         # Update network Manning's n + apply calibrated lake operating rules.
         network = apply_lake_rules(
-            self.network._replace(manning_n=params.manning_n),
-            getattr(params, "lake_rules", None))
+            self.network._replace(manning_n=params.manning_n), getattr(params, "lake_rules", None)
+        )
 
         outlet_Q, runoff, _ = coupled_simulate(
             forcing_series,
@@ -551,8 +573,8 @@ class CoupledModel(eqx.Module):
             initial_Q = initial_state.router_Q
 
         network = apply_lake_rules(
-            self.network._replace(manning_n=params.manning_n),
-            getattr(params, "lake_rules", None))
+            self.network._replace(manning_n=params.manning_n), getattr(params, "lake_rules", None)
+        )
         outlet_Q, Q_all, final_state = coupled_simulate_full(
             forcing_series,
             params.fuse_params,
@@ -574,7 +596,7 @@ class CoupledModel(eqx.Module):
     def n_hrus(self) -> int:
         """Number of HRUs."""
         return self.fuse_model.n_hrus
-    
+
     @property
     def n_reaches(self) -> int:
         """Number of reaches."""
@@ -585,64 +607,65 @@ class CoupledModel(eqx.Module):
 # LOSS FUNCTIONS
 # =============================================================================
 
+
 def nse_loss(simulated: Array, observed: Array, warmup: int = 0) -> Array:
     """Nash-Sutcliffe Efficiency loss (1 - NSE).
-    
+
     Args:
         simulated: Simulated discharge [n_timesteps]
         observed: Observed discharge [n_timesteps]
         warmup: Number of warmup timesteps to exclude
-        
+
     Returns:
         1 - NSE (lower is better)
     """
     sim = simulated[warmup:]
     obs = observed[warmup:]
-    
+
     # Handle NaN in observations
     valid = ~jnp.isnan(obs)
     sim_v = jnp.where(valid, sim, 0.0)
     obs_v = jnp.where(valid, obs, 0.0)
     n_valid = jnp.sum(valid)
-    
+
     obs_mean = jnp.sum(obs_v) / jnp.maximum(n_valid, 1.0)
-    
+
     ss_res = jnp.sum(jnp.where(valid, (sim_v - obs_v) ** 2, 0.0))
     ss_tot = jnp.sum(jnp.where(valid, (obs_v - obs_mean) ** 2, 0.0))
-    
+
     return ss_res / jnp.maximum(ss_tot, 1e-10)
 
 
 def mse_loss(simulated: Array, observed: Array, warmup: int = 0) -> Array:
     """Mean Squared Error loss.
-    
+
     Args:
         simulated: Simulated discharge [n_timesteps]
         observed: Observed discharge [n_timesteps]
         warmup: Number of warmup timesteps to exclude
-        
+
     Returns:
         MSE (lower is better)
     """
     sim = simulated[warmup:]
     obs = observed[warmup:]
-    
+
     valid = ~jnp.isnan(obs)
     sim_v = jnp.where(valid, sim, 0.0)
     obs_v = jnp.where(valid, obs, 0.0)
     n_valid = jnp.sum(valid)
-    
+
     return jnp.sum(jnp.where(valid, (sim_v - obs_v) ** 2, 0.0)) / jnp.maximum(n_valid, 1.0)
 
 
 def rmse_loss(simulated: Array, observed: Array, warmup: int = 0) -> Array:
     """Root Mean Squared Error loss.
-    
+
     Args:
         simulated: Simulated discharge [n_timesteps]
         observed: Observed discharge [n_timesteps]
         warmup: Number of warmup timesteps to exclude
-        
+
     Returns:
         RMSE (lower is better)
     """
@@ -651,31 +674,31 @@ def rmse_loss(simulated: Array, observed: Array, warmup: int = 0) -> Array:
 
 def mae_loss(simulated: Array, observed: Array, warmup: int = 0) -> Array:
     """Mean Absolute Error loss.
-    
+
     Args:
         simulated: Simulated discharge [n_timesteps]
         observed: Observed discharge [n_timesteps]
         warmup: Number of warmup timesteps to exclude
-        
+
     Returns:
         MAE (lower is better)
     """
     sim = simulated[warmup:]
     obs = observed[warmup:]
-    
+
     valid = ~jnp.isnan(obs)
     sim_v = jnp.where(valid, sim, 0.0)
     obs_v = jnp.where(valid, obs, 0.0)
     n_valid = jnp.sum(valid)
-    
+
     return jnp.sum(jnp.where(valid, jnp.abs(sim_v - obs_v), 0.0)) / jnp.maximum(n_valid, 1.0)
 
 
 def kge_loss(simulated: Array, observed: Array, warmup: int = 0) -> Array:
     """Kling-Gupta Efficiency loss (1 - KGE).
-    
+
     KGE = 1 - sqrt((r-1)² + (α-1)² + (β-1)²)
-    
+
     where:
         r = correlation coefficient
         α = σ_sim / σ_obs (variability ratio)
@@ -683,26 +706,32 @@ def kge_loss(simulated: Array, observed: Array, warmup: int = 0) -> Array:
     """
     sim = simulated[warmup:]
     obs = observed[warmup:]
-    
+
     valid = ~jnp.isnan(obs)
     sim_v = jnp.where(valid, sim, 0.0)
     obs_v = jnp.where(valid, obs, 0.0)
     n_valid = jnp.sum(valid)
-    
+
     sim_mean = jnp.sum(sim_v) / jnp.maximum(n_valid, 1.0)
     obs_mean = jnp.sum(obs_v) / jnp.maximum(n_valid, 1.0)
-    
-    sim_std = jnp.sqrt(jnp.sum(jnp.where(valid, (sim_v - sim_mean) ** 2, 0.0)) / jnp.maximum(n_valid - 1, 1.0))
-    obs_std = jnp.sqrt(jnp.sum(jnp.where(valid, (obs_v - obs_mean) ** 2, 0.0)) / jnp.maximum(n_valid - 1, 1.0))
-    
+
+    sim_std = jnp.sqrt(
+        jnp.sum(jnp.where(valid, (sim_v - sim_mean) ** 2, 0.0)) / jnp.maximum(n_valid - 1, 1.0)
+    )
+    obs_std = jnp.sqrt(
+        jnp.sum(jnp.where(valid, (obs_v - obs_mean) ** 2, 0.0)) / jnp.maximum(n_valid - 1, 1.0)
+    )
+
     # Correlation
-    cov = jnp.sum(jnp.where(valid, (sim_v - sim_mean) * (obs_v - obs_mean), 0.0)) / jnp.maximum(n_valid - 1, 1.0)
+    cov = jnp.sum(jnp.where(valid, (sim_v - sim_mean) * (obs_v - obs_mean), 0.0)) / jnp.maximum(
+        n_valid - 1, 1.0
+    )
     r = cov / jnp.maximum(sim_std * obs_std, 1e-10)
-    
+
     # Variability and bias ratios
     alpha = sim_std / jnp.maximum(obs_std, 1e-10)
     beta = sim_mean / jnp.maximum(obs_mean, 1e-10)
-    
+
     return jnp.sqrt((r - 1) ** 2 + (alpha - 1) ** 2 + (beta - 1) ** 2)
 
 
@@ -715,9 +744,9 @@ def coupled_loss(
     loss_type: str = "nse",
 ) -> Array:
     """Compute loss for coupled model.
-    
+
     This function is designed to be differentiated with jax.grad().
-    
+
     Args:
         params: Model parameters to optimize
         model: Coupled model
@@ -725,12 +754,12 @@ def coupled_loss(
         observed: Observed discharge
         warmup: Warmup period
         loss_type: "nse" or "kge"
-        
+
     Returns:
         Loss value (scalar)
     """
     outlet_Q, _ = model.simulate(forcing, params)
-    
+
     if loss_type == "nse":
         return nse_loss(outlet_Q, observed, warmup)
     else:
@@ -746,7 +775,7 @@ def value_and_grad_loss(
     loss_type: str = "nse",
 ) -> Tuple[Array, CoupledParams]:
     """Compute loss and gradients for calibration.
-    
+
     Args:
         model: Coupled model
         params: Current parameters
@@ -754,11 +783,17 @@ def value_and_grad_loss(
         observed: Observed discharge
         warmup: Warmup period
         loss_type: "nse" or "kge"
-        
+
     Returns:
         Tuple of (loss_value, parameter_gradients)
     """
-    loss_fn = partial(coupled_loss, model=model, forcing=forcing, 
-                      observed=observed, warmup=warmup, loss_type=loss_type)
-    
+    loss_fn = partial(
+        coupled_loss,
+        model=model,
+        forcing=forcing,
+        observed=observed,
+        warmup=warmup,
+        loss_type=loss_type,
+    )
+
     return jax.value_and_grad(loss_fn)(params)

@@ -1,9 +1,7 @@
 """Advanced tests for edge cases, numerical stability, and integration."""
 
-import pytest
 import jax.numpy as jnp
 import jax
-import numpy as np
 
 
 class TestEdgeCases:
@@ -153,19 +151,23 @@ class TestWaterBalance:
         params = eqx.tree_at(
             lambda p: (p.f_base, p.v_A, p.v_B, p.S2_FA_max, p.S2_FB_max),
             params,
-            (jnp.float32(f_base), jnp.float32(0.0), jnp.float32(0.0),
-             jnp.float32(1e6), jnp.float32(1e6)),
+            (
+                jnp.float32(f_base),
+                jnp.float32(0.0),
+                jnp.float32(0.0),
+                jnp.float32(1e6),
+                jnp.float32(1e6),
+            ),
         )
 
         state = State.default(n_hrus=1)
         state = eqx.tree_at(
-            lambda s: (s.S2_FA, s.S2_FB), state,
+            lambda s: (s.S2_FA, s.S2_FB),
+            state,
             (jnp.float32(0.0), jnp.float32(0.0)),
         )
 
-        forcing = Forcing(
-            precip=jnp.float32(40.0), pet=jnp.float32(0.0), temp=jnp.float32(15.0)
-        )
+        forcing = Forcing(precip=jnp.float32(40.0), pet=jnp.float32(0.0), temp=jnp.float32(15.0))
 
         # Accumulate recharge over several steps (no drainage, no clamp).
         for _ in range(15):
@@ -176,9 +178,7 @@ class TestWaterBalance:
         assert fa + fb > 0.0, "no free-water recharge accumulated"
         # Split tracks f_base (~0.25), decisively not the old 50/50. Tolerance
         # accommodates float32 + smooth-clamp accumulation over the window.
-        assert abs(fa / (fa + fb) - f_base) < 1e-2, (
-            f"split {fa / (fa + fb):.3f} != f_base {f_base}"
-        )
+        assert abs(fa / (fa + fb) - f_base) < 1e-2, f"split {fa / (fa + fb):.3f} != f_base {f_base}"
 
     def test_runoff_bounded_by_input(self):
         """Total runoff over time shouldn't wildly exceed input."""
@@ -304,6 +304,7 @@ class TestVectorization:
         def simulate_with_s1max(s1_max):
             # Create modified params (simplified - just vary one param)
             import equinox as eqx
+
             params = eqx.tree_at(lambda p: p.S1_max, base_params, s1_max)
             runoff, _ = model.simulate((precip, pet, temp), params)
             return jnp.mean(runoff)
@@ -362,7 +363,7 @@ class TestGradientNumerics:
 
         def loss_fn(params):
             runoff, _ = model.simulate((precip, pet, temp), params)
-            return jnp.mean(runoff ** 2)
+            return jnp.mean(runoff**2)
 
         params = Parameters.default(n_hrus=1)
         grads = jax.grad(loss_fn)(params)
@@ -387,9 +388,7 @@ class TestCoupledModel:
         lengths = [1000.0, 2000.0, 1500.0]
         slopes = [0.01, 0.005, 0.002]
 
-        network = create_network_from_topology(
-            reach_ids, downstream_ids, lengths, slopes
-        )
+        network = create_network_from_topology(reach_ids, downstream_ids, lengths, slopes)
 
         n_hrus = 3
         hru_areas = jnp.ones(n_hrus) * 1e6  # 1 km² each
@@ -424,9 +423,7 @@ class TestCoupledModel:
         lengths = [1000.0, 1500.0]
         slopes = [0.01, 0.005]
 
-        network = create_network_from_topology(
-            reach_ids, downstream_ids, lengths, slopes
-        )
+        network = create_network_from_topology(reach_ids, downstream_ids, lengths, slopes)
 
         n_hrus = 2
         hru_areas = jnp.ones(n_hrus) * 1e6
@@ -485,8 +482,14 @@ class TestCoupledModel:
 
         def run(routing_dt):
             out, _, _ = coupled_simulate(
-                forcing, fuse_params, network.manning_n, network, hru_areas,
-                PRMS_CONFIG, fuse_dt=1.0, routing_dt=routing_dt,
+                forcing,
+                fuse_params,
+                network.manning_n,
+                network,
+                hru_areas,
+                PRMS_CONFIG,
+                fuse_dt=1.0,
+                routing_dt=routing_dt,
             )
             return out
 
@@ -548,19 +551,24 @@ class TestCoupledModel:
         assert abs(float(out1[-1]) - 5.0) < 1e-2
 
         # Resolver: fixed honors the count, max=1 disables, adaptive stays bounded.
-        assert _resolve_n_substeps('fixed', 5, net, 86400.0) == 5
-        assert _resolve_n_substeps('adaptive', 1, net, 86400.0) == 1
-        assert 1 <= _resolve_n_substeps('adaptive', 10, net, 86400.0) <= 10
+        assert _resolve_n_substeps("fixed", 5, net, 86400.0) == 5
+        assert _resolve_n_substeps("adaptive", 1, net, 86400.0) == 1
+        assert 1 <= _resolve_n_substeps("adaptive", 10, net, 86400.0) <= 10
 
         # CoupledModel exposes the resolved static count.
         common = dict(
-            fuse_config=PRMS_CONFIG, network=net,
-            hru_areas=jnp.ones(1) * 1e6, n_hrus=1,
+            fuse_config=PRMS_CONFIG,
+            network=net,
+            hru_areas=jnp.ones(1) * 1e6,
+            n_hrus=1,
         )
         assert CoupledModel(**common, routing_max_substeps=1).n_substeps == 1
-        assert CoupledModel(
-            **common, routing_substep_method='fixed', routing_max_substeps=4
-        ).n_substeps == 4
+        assert (
+            CoupledModel(
+                **common, routing_substep_method="fixed", routing_max_substeps=4
+            ).n_substeps
+            == 4
+        )
 
 
 class TestLongSimulations:
