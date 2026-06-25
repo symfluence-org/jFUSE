@@ -16,11 +16,12 @@ References:
     Prentice Hall.
 """
 
-from typing import Tuple, NamedTuple, Optional
+from typing import Tuple, NamedTuple, Optional, cast
 
 import jax
 import jax.numpy as jnp
 from jax import Array, lax
+from jax.typing import ArrayLike
 import equinox as eqx
 
 from .network import NetworkArrays
@@ -30,7 +31,7 @@ from .network import NetworkArrays
 # =============================================================================
 
 
-def safe_pow(base: Array, exp: Array, eps: float = 1e-6) -> Array:
+def safe_pow(base: ArrayLike, exp: ArrayLike, eps: float = 1e-6) -> Array:
     """AD-safe power function."""
     safe_base = jnp.maximum(base, eps)
     return jnp.exp(exp * jnp.log(safe_base))
@@ -307,7 +308,7 @@ class RouterState(NamedTuple):
     Q: Array
     Q_prev: Array
     I_prev: Array
-    S_lake: Array = None
+    S_lake: Optional[Array] = None
 
 
 def route_network_step(
@@ -535,7 +536,7 @@ def route_network(
         # Keep the last sub-step of each input timestep.
         outlet_series = outlet_series[n_substeps - 1 :: n_substeps]
 
-    return outlet_series
+    return cast(Array, outlet_series)
 
 
 def route_network_full(

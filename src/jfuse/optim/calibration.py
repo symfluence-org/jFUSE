@@ -7,13 +7,13 @@ Supports multi-objective optimization, parameter bounds, and adaptive learning r
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Any, NamedTuple
+from typing import Callable, Dict, List, Optional, Tuple, Any, NamedTuple, cast
 import time
 
 import jax
 import jax.numpy as jnp
 import optax
-from jax import random
+from jax import random, Array
 
 from ..fuse.state import Parameters, PARAM_BOUNDS
 
@@ -319,7 +319,7 @@ def clip_to_bounds(params: Parameters) -> Parameters:
     return _reconstruct_parameters(params, base_values)
 
 
-def compute_grad_norm(grads: Parameters) -> float:
+def compute_grad_norm(grads: Parameters) -> Array:
     """Compute L2 norm of parameter gradients.
 
     Args:
@@ -372,7 +372,7 @@ class Calibrator:
         # Optional pre-built loss function. When set (e.g. by
         # calibrate_multi_site), calibrate() uses it instead of building one
         # from a single forcing/observed pair.
-        self._loss_fn = None
+        self._loss_fn: Optional[Callable[..., Any]] = None
 
     def _create_loss_fn(
         self,
@@ -381,7 +381,7 @@ class Calibrator:
         loss_type: str = "kge",
         warmup_steps: int = 365,
         weights: Optional[Dict[str, float]] = None,
-    ) -> Callable[[Parameters], float]:
+    ) -> Callable[[Parameters], Array]:
         """Create loss function for calibration.
 
         Args:
@@ -438,7 +438,7 @@ class Calibrator:
             else:
                 obs_1d = observed[:, 0]  # Assume first column is outlet
 
-        def loss_fn(params: Parameters) -> float:
+        def loss_fn(params: Any) -> Array:
             # Run simulation - detect model type properly
             if isinstance(self.model, CoupledModel):
                 # Coupled model returns (outlet_Q_m3s, runoff_mm_day)
@@ -471,7 +471,8 @@ class Calibrator:
                 return loss_functions[loss_types[0]](sim_eval, obs_eval)
 
             # Multi-objective: weighted sum
-            total = 0.0
+            assert weights is not None  # set above whenever len(loss_types) > 1
+            total = jnp.asarray(0.0)
             for lt in loss_types:
                 loss_val = loss_functions[lt](sim_eval, obs_eval)
 
@@ -491,7 +492,7 @@ class Calibrator:
 
     def _make_step_fn(
         self,
-        loss_fn: Callable[[Parameters], float],
+        loss_fn: Callable[[Parameters], Array],
         use_bounded_transform: bool = True,
     ) -> Callable:
         """Create JIT-compiled optimization step function.
@@ -710,8 +711,8 @@ class Calibrator:
             for forcing, observed in zip(forcing_list, observed_list)
         ]
 
-        def multi_site_loss(params: Parameters) -> float:
-            total_loss = 0.0
+        def multi_site_loss(params: Any) -> Array:
+            total_loss = jnp.asarray(0.0)
             for loss_fn, weight in zip(site_losses, site_weights):
                 total_loss += weight * loss_fn(params)
             return total_loss
@@ -799,4 +800,4 @@ def random_search(
     if verbose:
         print(f"\nRandom search complete. Best loss: {best_loss:.6f}")
 
-    return best_params, best_loss
+    return cast(Parameters, best_params), best_loss

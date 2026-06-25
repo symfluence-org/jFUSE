@@ -12,7 +12,7 @@ The network structure supports:
 """
 
 from typing import List, Dict, Optional, NamedTuple, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import jax.numpy as jnp
 from jax import Array
 import numpy as np
@@ -45,7 +45,7 @@ class Reach:
     width_exp: float = 0.5
     depth_coef: float = 0.27
     depth_exp: float = 0.3
-    upstream_ids: List[int] = None
+    upstream_ids: List[int] = field(default_factory=list)
     downstream_id: int = -1
     hru_id: int = -1
     area: float = 0.0

@@ -32,9 +32,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
-    # Advisory for now: mypy still has a large pre-existing backlog. Surfaces
-    # type findings in PRs without blocking; make blocking once cleaned up.
-    continue-on-error: true
+    # Blocking: the tree is mypy-clean (`mypy src` passes). Keep it that way.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5

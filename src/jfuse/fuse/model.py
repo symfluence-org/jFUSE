@@ -334,7 +334,7 @@ def fuse_simulate(
     start_doy: int = 1,
     glacier_frac: Optional[Array] = None,
     remat_scan: bool = True,
-) -> Tuple[Array, Array]:
+) -> Tuple[Array, State]:
     """Run FUSE simulation over a time series.
 
     Uses JAX's scan for efficient sequential computation with
@@ -417,7 +417,7 @@ class FUSEModel(eqx.Module):
 
     def __init__(
         self,
-        config: ModelConfig = None,
+        config: Optional[ModelConfig] = None,
         n_hrus: int = 1,
     ):
         """Initialize FUSE model.
@@ -453,7 +453,7 @@ class FUSEModel(eqx.Module):
         self,
         forcing_series: Tuple[Array, Array, Array],
         params: Parameters,
-        initial_state: State = None,
+        initial_state: Optional[State] = None,
         dt: float = 1.0,
         start_doy: int = 1,
         glacier_frac: Optional[Array] = None,

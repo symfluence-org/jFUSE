@@ -10,7 +10,7 @@ Provides unified interface for all optimization algorithms with jFUSE.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from symfluence.optimization.optimizers.base_model_optimizer import BaseModelOptimizer
 
@@ -55,7 +55,7 @@ class JFUSEModelOptimizer(BaseModelOptimizer):
         # Store the raw config dict for passing to parameter manager
         self._raw_config = config if isinstance(config, dict) else {}
         _exp_id = config.get("EXPERIMENT_ID")  # noqa: F841
-        self.data_dir = Path(config.get("SYMFLUENCE_DATA_DIR"))
+        self.data_dir = Path(cast(str, config.get("SYMFLUENCE_DATA_DIR")))
         self.domain_name = config.get("DOMAIN_NAME")
         self.project_dir = self.data_dir / f"domain_{self.domain_name}"
 

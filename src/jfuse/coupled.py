@@ -11,7 +11,7 @@ The coupling handles:
 - Proper gradient flow through both components
 """
 
-from typing import Tuple, Optional, NamedTuple
+from typing import Tuple, Optional, NamedTuple, cast
 from functools import partial
 import math
 import warnings
@@ -109,6 +109,15 @@ def apply_lake_rules(
     if lake_rules is None or getattr(network, "is_lake", None) is None:
         return network
     is_lake = network.is_lake
+    # Narrowed by the guard above: a network flagged with is_lake carries the
+    # full set of lake attributes.
+    assert (
+        is_lake is not None
+        and network.lake_q_ref is not None
+        and network.lake_q_min is not None
+        and network.lake_exp is not None
+        and network.lake_spill_coef is not None
+    )
     q_ref = network.lake_q_ref * lake_rules.q_ref_mult
     q_min = lake_rules.q_min_frac * q_ref
     exp = jnp.broadcast_to(lake_rules.exp, network.lake_exp.shape)
@@ -366,7 +375,7 @@ def _resolve_n_substeps(
 
     # adaptive: estimate the shortest reach travel time at a reference discharge.
     celerity = compute_celerity(
-        1.0,
+        jnp.asarray(1.0),
         network.slopes,
         network.manning_n,
         network.width_coef,
@@ -407,9 +416,9 @@ class CoupledModel(eqx.Module):
 
     def __init__(
         self,
-        fuse_config: ModelConfig = None,
-        network: NetworkArrays = None,
-        hru_areas: Array = None,
+        fuse_config: Optional[ModelConfig] = None,
+        network: Optional[NetworkArrays] = None,
+        hru_areas: Optional[Array] = None,
         n_hrus: int = 1,
         routing_dt: Optional[float] = None,
         routing_substep_method: str = "adaptive",
@@ -437,7 +446,9 @@ class CoupledModel(eqx.Module):
             hru_areas = jnp.ones(n_hrus) * 1e6  # Default 1 km²
 
         self.fuse_model = FUSEModel(config=fuse_config, n_hrus=len(hru_areas))
-        self.network = network
+        # network is required in practice; the None default only exists so the
+        # signature reads cleanly. Treat it as provided here.
+        self.network = cast(NetworkArrays, network)
         self.hru_areas = hru_areas
         # Static per-HRU glacier fraction (None => no glacier). Aligned to the
         # same HRU ordering as hru_areas / forcing.
@@ -456,7 +467,7 @@ class CoupledModel(eqx.Module):
         cls,
         forcing_path: str,
         network_path: str,
-        config: ModelConfig = None,
+        config: Optional[ModelConfig] = None,
     ) -> "CoupledModel":
         """Create model from NetCDF files.
 
@@ -556,14 +567,14 @@ class CoupledModel(eqx.Module):
         params: CoupledParams,
         initial_state: Optional[CoupledState] = None,
         start_doy: int = 1,
-    ) -> Tuple[Array, Array, Array]:
+    ) -> Tuple[Array, Array, FUSEState]:
         """Run coupled simulation, returning discharge at every reach.
 
         Like :meth:`simulate` but exposes per-reach discharge for multi-gauge
         calibration (the loss reads simulated flow at each gauge's reach).
 
         Returns:
-            Tuple ``(outlet_Q, Q_all, runoff)`` where ``Q_all`` is
+            Tuple ``(outlet_Q, Q_all, final_fuse_state)`` where ``Q_all`` is
             ``[n_timesteps, n_reaches]``.
         """
         initial_fuse_state = None

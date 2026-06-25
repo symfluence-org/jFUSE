@@ -90,6 +90,12 @@ def load_forcing(
     if not HAS_XARRAY and not HAS_NETCDF4:
         raise ImportError("Either xarray or netCDF4 is required for NetCDF I/O")
 
+    # ds and the coordinate arrays hold different concrete types depending on
+    # the backend (xarray vs netCDF4); treat them as dynamic.
+    ds: Any
+    time: Any
+    hru_ids: Any
+
     if HAS_XARRAY:
         ds = xr.open_dataset(filepath)
 
@@ -140,13 +146,13 @@ def _get_variable(ds, names: List[str]):
 
 def load_network(
     filepath: str,
-    reach_id_var: str = None,
-    downstream_var: str = None,
-    length_var: str = None,
-    slope_var: str = None,
-    manning_var: str = None,
-    area_var: str = None,
-    hru_id_var: str = None,
+    reach_id_var: Optional[str] = None,
+    downstream_var: Optional[str] = None,
+    length_var: Optional[str] = None,
+    slope_var: Optional[str] = None,
+    manning_var: Optional[str] = None,
+    area_var: Optional[str] = None,
+    hru_id_var: Optional[str] = None,
 ) -> Tuple[RiverNetwork, Array]:
     """Load river network from NetCDF file.
 
@@ -169,6 +175,7 @@ def load_network(
     if not HAS_XARRAY and not HAS_NETCDF4:
         raise ImportError("Either xarray or netCDF4 is required for NetCDF I/O")
 
+    ds: Any
     if HAS_XARRAY:
         ds = xr.open_dataset(filepath)
         var_names = list(ds.data_vars)
@@ -299,6 +306,9 @@ def load_observations(
     Returns:
         Tuple of (discharge array, time array)
     """
+    # Backend-dependent concrete types; treat as dynamic.
+    ds: Any
+    time: Any
     if HAS_XARRAY:
         ds = xr.open_dataset(filepath)
         discharge = jnp.array(ds[discharge_var].values)
@@ -336,23 +346,22 @@ def save_results(
     if not HAS_XARRAY:
         raise ImportError("xarray is required for saving results")
 
-    # Convert JAX arrays to numpy
-    outlet_discharge = np.array(outlet_discharge)
+    # Convert JAX arrays to numpy for xarray.
+    outlet_np = np.asarray(outlet_discharge)
 
     # Build dataset
-    data_vars = {
-        "outlet_discharge": (["time"], outlet_discharge),
+    data_vars: Dict[str, Any] = {
+        "outlet_discharge": (["time"], outlet_np),
     }
 
     if runoff is not None:
-        runoff = np.array(runoff)
-        data_vars["runoff"] = (["time", "hru"], runoff)
+        data_vars["runoff"] = (["time", "hru"], np.asarray(runoff))
 
-    coords = {}
+    coords: Dict[str, Any] = {}
     if time is not None:
         coords["time"] = time
     else:
-        coords["time"] = np.arange(len(outlet_discharge))
+        coords["time"] = np.arange(len(outlet_np))
 
     if runoff is not None:
         coords["hru"] = np.arange(runoff.shape[1])
@@ -362,11 +371,11 @@ def save_results(
     # Add parameters as variables
     if parameters is not None:
         for name, values in parameters.items():
-            values = np.array(values)
-            if values.ndim == 0:
-                ds.attrs[f"param_{name}"] = float(values)
-            elif values.ndim == 1:
-                ds[f"param_{name}"] = (["hru"], values)
+            values_np = np.asarray(values)
+            if values_np.ndim == 0:
+                ds.attrs[f"param_{name}"] = float(values_np)
+            elif values_np.ndim == 1:
+                ds[f"param_{name}"] = (["hru"], values_np)
 
     # Add metadata
     if metadata is not None:
@@ -394,7 +403,7 @@ def save_state(
     if not HAS_XARRAY:
         raise ImportError("xarray is required for saving state")
 
-    data_vars = {}
+    data_vars: Dict[str, Any] = {}
     for field in ["S1", "S1_T", "S1_TA", "S1_TB", "S1_F", "S2", "S2_T", "S2_FA", "S2_FB", "SWE"]:
         values = np.array(getattr(state, field))
         if values.ndim == 0:

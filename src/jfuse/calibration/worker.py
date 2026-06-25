@@ -12,7 +12,7 @@ Refactored to use InMemoryModelWorker base class for common functionality.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -115,23 +115,23 @@ try:
     HAS_JFUSE = True
 except ImportError:
     HAS_JFUSE = False
-    jfuse = None
-    eqx = None
-    create_fuse_model = None
-    Parameters = None
+    jfuse = None  # type: ignore[assignment]
+    eqx = None  # type: ignore[assignment]
+    create_fuse_model = None  # type: ignore[assignment]
+    Parameters = None  # type: ignore[assignment,misc]
     PARAM_BOUNDS = {}
-    kge_loss = None
-    nse_loss = None
-    multi_gauge_kge_loss = None
-    CoupledModel = None
-    create_network_from_topology = None
-    load_network = None
-    FUSEModel = None
-    ModelConfig = None
-    PRMS_GRADIENT_CONFIG = None
-    MAX_GRADIENT_CONFIG = None
+    kge_loss = None  # type: ignore[assignment]
+    nse_loss = None  # type: ignore[assignment]
+    multi_gauge_kge_loss = None  # type: ignore[assignment]
+    CoupledModel = None  # type: ignore[assignment,misc]
+    create_network_from_topology = None  # type: ignore[assignment]
+    load_network = None  # type: ignore[assignment]
+    FUSEModel = None  # type: ignore[assignment,misc]
+    ModelConfig = None  # type: ignore[assignment,misc]
+    PRMS_GRADIENT_CONFIG = None  # type: ignore[assignment]
+    MAX_GRADIENT_CONFIG = None  # type: ignore[assignment]
     JFUSE_CONFIGS = {}
-    build_config_from_decisions = None
+    build_config_from_decisions = None  # type: ignore[assignment]
 
 
 class JFUSEWorker(InMemoryModelWorker):
@@ -195,24 +195,24 @@ class JFUSEWorker(InMemoryModelWorker):
             init_state_mode = (self.config or {}).get("JFUSE_INITIAL_STATE", "default")
         self._initial_state_mode = str(init_state_mode).lower()
 
-        # jFUSE-specific model components
-        self._model = None
-        self._default_params = None
-        self._initial_state = None  # Set during model initialization
-        self._coupled_model = None
-        self._network = None
-        self._hru_areas = None
-        self._forcing_tuple = None
-        self._network_arrays = None
-        self._glacier_frac = None  # Per-GRU glacier fraction (set in forcing load)
+        # jFUSE-specific model components (lazily set during model/forcing setup)
+        self._model: Any = None
+        self._default_params: Any = None
+        self._initial_state: Any = None  # Set during model initialization
+        self._coupled_model: Any = None
+        self._network: Any = None
+        self._hru_areas: Any = None
+        self._forcing_tuple: Any = None
+        self._network_arrays: Any = None
+        self._glacier_frac: Any = None  # Per-GRU glacier fraction (set in forcing load)
 
         # Distributed mode output
-        self._last_outlet_q = None
+        self._last_outlet_q: Any = None
 
         # Multi-gauge calibration
-        self._gauge_obs = None  # [T, G] JAX array, NaN for missing
-        self._gauge_reach_indices = None  # [G] JAX array, indices into Q_all
-        self._gauge_names = None  # list of gauge names for logging
+        self._gauge_obs: Any = None  # [T, G] JAX array, NaN for missing
+        self._gauge_reach_indices: Any = None  # [G] JAX array, indices into Q_all
+        self._gauge_names: Any = None  # list of gauge names for logging
         self._n_gauges = 0
 
         # Gradient coverage tracking
@@ -221,12 +221,12 @@ class JFUSEWorker(InMemoryModelWorker):
 
         # Transfer function state
         self._use_transfer_functions = False
-        self._tf_config = None
-        self._tf_attr_matrix = None
-        self._tf_default_params = None
-        self._tf_param_indices = None
-        self._tf_lower_bounds = None
-        self._tf_upper_bounds = None
+        self._tf_config: Any = None
+        self._tf_attr_matrix: Any = None
+        self._tf_default_params: Any = None
+        self._tf_param_indices: Any = None
+        self._tf_lower_bounds: Any = None
+        self._tf_upper_bounds: Any = None
 
     def _load_glacier_frac_aligned(self, data_dir, domain_name, gru_ids, gru_subset, n_expected):
         """Load per-GRU glacier fraction aligned to the forcing GRUs.
@@ -1120,7 +1120,10 @@ class JFUSEWorker(InMemoryModelWorker):
             obs = self._observations[self.warmup_days :]
 
             # Calculate metrics (both in mm/day)
-            return self.calculate_streamflow_metrics(sim, obs, skip_warmup=False)
+            return cast(
+                Dict[str, Any],
+                self.calculate_streamflow_metrics(sim, obs, skip_warmup=False),
+            )
 
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Error calculating jFUSE metrics: {e}")
@@ -1457,7 +1460,7 @@ class JFUSEWorker(InMemoryModelWorker):
         """Evaluate a parameter set and return the metric value."""
         if not self._initialized:
             if not self.initialize():
-                return self.penalty_score
+                return float(self.penalty_score)
 
         try:
             params_obj = self._dict_to_params(params)
@@ -1496,7 +1499,7 @@ class JFUSEWorker(InMemoryModelWorker):
             obs = np.array(self._observations) if HAS_JAX else self._observations
 
             if obs is None:
-                return self.penalty_score
+                return float(self.penalty_score)
 
             min_len = min(len(sim), len(obs))
             sim = sim[:min_len]
@@ -1510,7 +1513,7 @@ class JFUSEWorker(InMemoryModelWorker):
             obs_arr = obs_arr[valid_mask]
 
             if len(sim) < 10:
-                return self.penalty_score
+                return float(self.penalty_score)
 
             from symfluence.evaluation.metrics import kge, nse
 
@@ -1520,7 +1523,7 @@ class JFUSEWorker(InMemoryModelWorker):
 
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Parameter evaluation failed: {e}")
-            return self.penalty_score
+            return float(self.penalty_score)
 
     # =========================================================================
     # Static Worker Function
@@ -1537,4 +1540,4 @@ def _evaluate_jfuse_parameters_worker(task_data: Dict[str, Any]) -> Dict[str, An
     worker = JFUSEWorker(config=task_data.get("config"))
     task = WorkerTask.from_legacy_dict(task_data)
     result = worker.evaluate(task)
-    return result.to_legacy_dict()
+    return cast(Dict[str, Any], result.to_legacy_dict())
