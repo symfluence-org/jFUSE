@@ -84,7 +84,9 @@ try:
         # Return loss (1 - NSE, lower is better)
         return 1.0 - nse
 
-    def multi_gauge_kge_loss(Q_all, gauge_indices, gauge_obs, warmup, aggregation="median"):
+    def multi_gauge_kge_loss(
+        Q_all, gauge_indices, gauge_obs, warmup, aggregation="median", kge_floor=None
+    ):
         """Multi-gauge KGE loss aggregated across gauges.
 
         Args:
@@ -93,6 +95,10 @@ try:
             gauge_obs: Observed discharge per gauge (time x gauges)
             warmup: Number of warmup timesteps to skip
             aggregation: 'median' or 'mean' for aggregating per-gauge losses
+            kge_floor: If set, cap each gauge's KGE contribution at this value
+                (i.e. clip per-gauge loss to ``1 - kge_floor``). Lets a 'mean'
+                aggregation count every gauge without a handful of pathological
+                gauges (leaky karst, residual glacier bias) dominating it.
         """
         losses = []
         for i, seg_idx in enumerate(gauge_indices):
@@ -105,6 +111,8 @@ try:
         if not losses:
             return jnp.array(2.0)
         loss_arr = jnp.stack(losses)
+        if kge_floor is not None:
+            loss_arr = jnp.minimum(loss_arr, 1.0 - kge_floor)
         if aggregation == "median":
             return jnp.median(loss_arr)
         return jnp.mean(loss_arr)
@@ -1343,6 +1351,9 @@ class JFUSEWorker(InMemoryModelWorker):
         gauge_obs = self._gauge_obs
         gauge_indices = self._gauge_reach_indices
         aggregation = self._cfg("MULTI_GAUGE_AGGREGATION", "median")
+        kge_floor = self._cfg("MULTI_GAUGE_KGE_FLOOR", None)
+        if kge_floor is not None:
+            kge_floor = float(kge_floor)
 
         if has_multi_gauge:
             obs = gauge_obs
@@ -1356,7 +1367,9 @@ class JFUSEWorker(InMemoryModelWorker):
             if is_distributed and has_multi_gauge:
                 # Multi-gauge path: simulate_full -> multi_gauge_kge_loss
                 _, Q_all, _ = coupled_model.simulate_full(forcing_tuple, params_obj)
-                return multi_gauge_kge_loss(Q_all, gauge_indices, obs, warmup, aggregation)
+                return multi_gauge_kge_loss(
+                    Q_all, gauge_indices, obs, warmup, aggregation, kge_floor
+                )
             elif is_distributed:
                 # Single outlet path
                 outlet_q, _ = coupled_model.simulate(
@@ -1471,6 +1484,11 @@ class JFUSEWorker(InMemoryModelWorker):
                 aggregation = self._get_config_value(
                     lambda: None, default="median", dict_key="MULTI_GAUGE_AGGREGATION"
                 )
+                kge_floor = self._get_config_value(
+                    lambda: None, default=None, dict_key="MULTI_GAUGE_KGE_FLOOR"
+                )
+                if kge_floor is not None:
+                    kge_floor = float(kge_floor)
                 loss_val = float(
                     multi_gauge_kge_loss(
                         Q_all,
@@ -1478,6 +1496,7 @@ class JFUSEWorker(InMemoryModelWorker):
                         self._gauge_obs,
                         self.warmup_days,
                         aggregation,
+                        kge_floor,
                     )
                 )
                 # Return 1 - loss (KGE value, higher is better)

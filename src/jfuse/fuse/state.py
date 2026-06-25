@@ -89,9 +89,11 @@ PARAM_BOUNDS: Dict[str, Tuple[float, float]] = {
     "MFMAX": (1.0, 8.0),
     "MFMIN": (0.1, 2.0),
     "smooth_frac": (0.001, 0.1),
-    # Glacier: ice DDF usually exceeds the snow factor (lower ice albedo);
-    # 3-15 mm/°C/day spans clean to debris-influenced ice. K_glac fast (days).
-    "DDF_ice": (3.0, 15.0),
+    # Glacier: ice DDF usually exceeds the snow factor (lower ice albedo).
+    # Literature ice degree-day factors are ~5-8 mm/°C/day; the upper bound is
+    # capped at 8 so calibration can't mask warm-biased (under-lapsed) glacier
+    # forcing by inflating melt. K_glac fast (days).
+    "DDF_ice": (3.0, 8.0),
     "T_ice": (-2.0, 2.0),
     "K_glac": (0.01, 1.0),
 }
