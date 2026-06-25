@@ -196,6 +196,121 @@ def glacier_fraction_by_gru_id(
         return None
 
 
+def glacier_dtemp_by_gru_id(
+    project_dir,
+    domain_name: str,
+    lapse_rate: float = 0.0065,
+    logger: Optional[logging.Logger] = None,
+):
+    """Per-GRU glacier-surface temperature offset (<=0 K) keyed by ``GRU_ID``.
+
+    jFUSE drives ice melt with the GRU-mean air temperature, but a glacier sits
+    on the higher (colder) part of the GRU, so the valley-mean temperature melts
+    ice far too fast. For each GRU this lapses temperature from the GRU-mean
+    elevation to the area-weighted median glacier-surface elevation (RGI
+    ``zmed_m``) of the glaciers it contains::
+
+        dtemp = -lapse_rate * max(glacier_zmed - gru_mean_elev, 0)
+
+    Uses the same RGI ∩ river-basins overlay as :func:`glacier_fraction_by_gru_id`
+    with GRU-mean elevation from ``settings/FUSE/subcatchment_attributes.csv``.
+    Cached to ``settings/JFUSE/glacier_dtemp_by_gru.csv``.
+
+    Returns ``{int(GRU_ID): float dtemp}`` or ``None`` if inputs are missing.
+    """
+    log = logger or logging.getLogger(__name__)
+    cache_csv = project_dir / "settings" / "JFUSE" / "glacier_dtemp_by_gru.csv"
+
+    if cache_csv.exists():
+        try:
+            import pandas as pd
+
+            df = pd.read_csv(cache_csv)
+            return {int(r.gru_id): float(r.glacier_dtemp) for r in df.itertuples()}
+        except Exception:  # noqa: BLE001
+            log.debug("Could not read glacier-dtemp cache %s", cache_csv, exc_info=True)
+
+    rgi_dir = project_dir / "data" / "attributes" / "glaciers" / "cache"
+    rgi_shps = list(rgi_dir.glob("RGI*G-0*_*.shp")) if rgi_dir.exists() else []
+    rb_dir = project_dir / "shapefiles" / "river_basins"
+    rb_shps = (
+        (
+            list(rb_dir.glob("*riverBasins_semidistributed.shp"))
+            or list(rb_dir.glob("*riverBasins*.shp"))
+        )
+        if rb_dir.exists()
+        else []
+    )
+    attr_csv = project_dir / "settings" / "FUSE" / "subcatchment_attributes.csv"
+    if not rgi_shps or not rb_shps or not attr_csv.exists():
+        log.debug("RGI/river-basins/attributes missing for glacier-dtemp overlay.")
+        return None
+
+    try:
+        import geopandas as gpd
+        import pandas as pd
+
+        basins = gpd.read_file(rb_shps[0])
+        if "GRU_ID" not in basins.columns:
+            log.warning("river basins lack GRU_ID; cannot key glacier dtemp.")
+            return None
+        glac = pd.concat([gpd.read_file(s) for s in rgi_shps], ignore_index=True)
+        glac = gpd.GeoDataFrame(glac, geometry="geometry", crs=gpd.read_file(rgi_shps[0]).crs)
+        if "zmed_m" not in glac.columns:
+            log.warning("RGI glaciers lack zmed_m; cannot derive glacier dtemp.")
+            return None
+
+        proj = "EPSG:3057"  # Iceland Lambert, equal-area for honest area weights
+        basins = basins.to_crs(proj)
+        glac = glac.to_crs(proj)
+
+        log.info(
+            "Computing glacier dtemp: overlaying %d glaciers ∩ %d GRUs...",
+            len(glac),
+            len(basins),
+        )
+        inter = gpd.overlay(
+            basins[["GRU_ID", "geometry"]],
+            glac[["zmed_m", "geometry"]],
+            how="intersection",
+            keep_geom_type=True,
+        )
+        inter["_ice_area"] = inter.geometry.area
+        # Area-weighted median glacier-surface elevation per GRU.
+        num = inter.assign(_w=inter["zmed_m"] * inter["_ice_area"]).groupby("GRU_ID")["_w"].sum()
+        den = inter.groupby("GRU_ID")["_ice_area"].sum()
+        glac_zmed = (num / den).to_dict()
+
+        gru_elev = pd.read_csv(attr_csv).set_index("gru_id")["elev_m"].to_dict()
+        out = {}
+        for gid, zmed in glac_zmed.items():
+            ge = gru_elev.get(int(gid))
+            if ge is None:
+                continue
+            out[int(gid)] = -float(lapse_rate) * max(float(zmed) - float(ge), 0.0)
+        # Ensure every GRU appears (0 where no glacier).
+        for g in basins["GRU_ID"].astype(int):
+            out.setdefault(int(g), 0.0)
+
+        try:
+            cache_csv.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame({"gru_id": list(out.keys()), "glacier_dtemp": list(out.values())}).to_csv(
+                cache_csv, index=False
+            )
+            log.info(
+                "Cached glacier dtemp for %d GRUs (min=%.2f K) -> %s",
+                len(out),
+                float(min(out.values())) if out else 0.0,
+                cache_csv,
+            )
+        except Exception:  # noqa: BLE001
+            log.debug("Could not write glacier-dtemp cache", exc_info=True)
+        return out
+    except Exception:  # noqa: BLE001
+        log.warning("Glacier dtemp overlay failed; no glacier lapse applied.", exc_info=True)
+        return None
+
+
 def classify_lakes_onto_network(
     network_arrays,
     project_dir,
