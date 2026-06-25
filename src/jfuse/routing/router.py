@@ -17,7 +17,6 @@ References:
 """
 
 from typing import Tuple, NamedTuple, Optional
-from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -248,20 +247,70 @@ def muskingum_route_reach(
 
 
 # =============================================================================
+# LAKE / RESERVOIR ROUTING
+# =============================================================================
+
+def lake_outflow(
+    S: Array,
+    s_max: Array,
+    q_ref: Array,
+    q_min: Array,
+    exp: Array,
+    spill_coef: Array,
+) -> Array:
+    """Differentiable storage-discharge outflow for a lake or reservoir node.
+
+    Outflow as a function of active storage ``S``::
+
+        Q(S) = q_min + (q_ref - q_min) * clip(S / s_max, 0, 1) ** exp
+                     + spill_coef * max(S - s_max, 0)
+
+    * **Natural lakes**: ``q_min = 0`` gives a weir-like power-law rating.
+    * **Regulated reservoirs**: ``q_min`` is the minimum (e.g. environmental)
+      release and ``q_ref`` the reference managed discharge. ``q_ref``,
+      ``q_min``, ``exp`` and ``spill_coef`` are the *operating-rule* parameters
+      — all AD-active, so they calibrate by gradient against observed downstream
+      flow when no reservoir-operation records are available.
+
+    The spillway term sheds storage above capacity. Everything is smooth/clamped
+    so gradients flow w.r.t. both storage and the rule parameters.
+
+    Args:
+        S: Active storage (m³).
+        s_max: Storage capacity (m³).
+        q_ref: Reference outflow at full storage (m³/s).
+        q_min: Minimum release (m³/s).
+        exp: Rating exponent (dimensionless).
+        spill_coef: Spillway release rate above capacity (1/s).
+
+    Returns:
+        Outflow (m³/s).
+    """
+    safe_smax = jnp.maximum(s_max, 1.0)
+    frac = jnp.clip(S / safe_smax, 0.0, 1.0)
+    q_rating = q_min + (q_ref - q_min) * safe_pow(frac, exp)
+    q_spill = spill_coef * jnp.maximum(S - s_max, 0.0)
+    return jnp.maximum(q_rating + q_spill, 0.0)
+
+
+# =============================================================================
 # NETWORK ROUTING
 # =============================================================================
 
 class RouterState(NamedTuple):
     """State for network routing.
-    
+
     Attributes:
         Q: Current discharge at each reach [n_reaches]
         Q_prev: Previous timestep discharge [n_reaches]
         I_prev: Previous timestep inflow [n_reaches]
+        S_lake: Lake/reservoir storage at each reach [n_reaches]; unused
+            (zeros) on reaches that are not lakes.
     """
     Q: Array
     Q_prev: Array
     I_prev: Array
+    S_lake: Array = None
 
 
 def route_network_step(
@@ -285,29 +334,77 @@ def route_network_step(
         Tuple of (new_state, outlet_discharge)
     """
     n = network.n_reaches
-    
-    # Initialize new discharge array
-    Q_new = jnp.zeros(n)
-    
+
     # Reference discharge for parameter computation (use previous Q)
     Q_ref = jnp.maximum(state.Q, 0.1)
-    
-    # Process reaches in topological order using a scan
-    # This ensures upstream reaches are processed before downstream
-    
+
+    # Lake support is optional: networks built without lake attributes route as
+    # pure channels and carry storage forward unchanged.
+    has_lakes = getattr(network, "is_lake", None) is not None
+    S_lake_prev = state.S_lake if state.S_lake is not None else jnp.zeros(n)
+
+    # Level-parallel routing: reaches that share a topological level have no
+    # mutual dependency, so route them together (vectorized) and only the
+    # *levels* are sequential. This cuts the autodiff sequential depth from
+    # n_reaches to n_levels (the network's longest path) — the key to making
+    # reverse-mode differentiation of a national network tractable.
+    if getattr(network, "reach_level", None) is not None and network.max_level is not None:
+        # Muskingum coefficients depend only on the (fixed) reference discharge
+        # and geometry, so compute them once for all reaches.
+        mp = compute_muskingum_params(
+            Q_ref, network.lengths, network.slopes, network.manning_n,
+            network.width_coef, network.width_exp, network.depth_coef,
+            network.depth_exp, dt,
+        )
+        ds_clamped = jnp.maximum(network.downstream_idx, 0)
+        not_outlet = network.downstream_idx >= 0
+
+        def level_step(carry, level):
+            inflow_acc, Q_out, S_out, I_final = carry
+            I_curr = inflow_acc  # total inflow per reach so far (final at this level)
+            Q_chan = muskingum_route_reach(state.I_prev, I_curr, state.Q_prev, mp)
+            if has_lakes:
+                Q_lake_raw = lake_outflow(
+                    S_lake_prev, network.lake_s_max, network.lake_q_ref,
+                    network.lake_q_min, network.lake_exp, network.lake_spill_coef)
+                Q_lake = jnp.clip(Q_lake_raw, 0.0, S_lake_prev / dt + I_curr)
+                S_new = jnp.maximum(S_lake_prev + (I_curr - Q_lake) * dt, 0.0)
+                Q_r = jnp.where(network.is_lake, Q_lake, Q_chan)
+                S_r = jnp.where(network.is_lake, S_new, S_lake_prev)
+            else:
+                Q_r, S_r = Q_chan, S_lake_prev
+            at_level = network.reach_level == level
+            Q_out = jnp.where(at_level, Q_r, Q_out)
+            S_out = jnp.where(at_level, S_r, S_out)
+            I_final = jnp.where(at_level, I_curr, I_final)
+            # Push this level's finalized outflow to each reach's downstream.
+            contrib = jnp.where(at_level & not_outlet, Q_r, 0.0)
+            inflow_acc = inflow_acc.at[ds_clamped].add(contrib)
+            return (inflow_acc, Q_out, S_out, I_final), None
+
+        (_, Q_final, S_lake_all, I_all), _ = lax.scan(
+            level_step,
+            (lateral_inflow, jnp.zeros(n), S_lake_prev, jnp.zeros(n)),
+            jnp.arange(network.max_level + 1),
+        )
+        new_state = RouterState(Q=Q_final, Q_prev=state.Q, I_prev=I_all, S_lake=S_lake_all)
+        outlet_Q = jnp.sum(jnp.where(network.is_outlet, Q_final, 0.0))
+        return new_state, outlet_Q
+
+    # --- Sequential fallback (networks without precomputed levels) ---
     def process_reach(carry, reach_idx):
         Q_accumulated = carry
-        
+
         # Get upstream inflow (sum of upstream reach outflows)
         upstream_Q = jnp.sum(
             jnp.where(network.upstream_mask[reach_idx], Q_accumulated, 0.0)
         )
-        
+
         # Total inflow = upstream + lateral
         I_curr = upstream_Q + lateral_inflow[reach_idx]
         I_prev = state.I_prev[reach_idx]
-        
-        # Compute Muskingum parameters
+
+        # --- Channel routing (Muskingum-Cunge) ---
         params = compute_muskingum_params(
             Q_ref[reach_idx],
             network.lengths[reach_idx],
@@ -319,31 +416,53 @@ def route_network_step(
             network.depth_exp[reach_idx],
             dt,
         )
-        
-        # Route through reach
-        Q_out = muskingum_route_reach(
+        Q_chan = muskingum_route_reach(
             I_prev, I_curr, state.Q_prev[reach_idx], params
         )
-        
+
+        if has_lakes:
+            # --- Lake / reservoir routing (storage-discharge node) ---
+            S_i = S_lake_prev[reach_idx]
+            Q_lake_raw = lake_outflow(
+                S_i,
+                network.lake_s_max[reach_idx],
+                network.lake_q_ref[reach_idx],
+                network.lake_q_min[reach_idx],
+                network.lake_exp[reach_idx],
+                network.lake_spill_coef[reach_idx],
+            )
+            # Cap release at the water physically available this step so storage
+            # stays non-negative and mass is conserved.
+            Q_lake = jnp.clip(Q_lake_raw, 0.0, S_i / dt + I_curr)
+            S_lake_new_i = jnp.maximum(S_i + (I_curr - Q_lake) * dt, 0.0)
+
+            is_lake_i = network.is_lake[reach_idx]
+            Q_out = jnp.where(is_lake_i, Q_lake, Q_chan)
+            S_lake_out_i = jnp.where(is_lake_i, S_lake_new_i, S_i)
+        else:
+            Q_out = Q_chan
+            S_lake_out_i = S_lake_prev[reach_idx]
+
         # Update accumulated Q
         Q_accumulated = Q_accumulated.at[reach_idx].set(Q_out)
-        
-        # Store inflow for next timestep
-        return Q_accumulated, (Q_out, I_curr)
-    
+
+        # Store inflow + lake storage for next timestep
+        return Q_accumulated, (Q_out, I_curr, S_lake_out_i)
+
     # Run scan over reaches in topological order
     reach_indices = jnp.arange(n)
-    Q_final, (Q_all, I_all) = lax.scan(
+    Q_final, (Q_all, I_all, S_lake_all) = lax.scan(
         process_reach,
         jnp.zeros(n),
         reach_indices,
     )
-    
+
     # Build new state
     new_state = RouterState(
         Q=Q_final,
         Q_prev=state.Q,
         I_prev=I_all,
+        S_lake=S_lake_all,
     )
     
     # Outlet discharge (sum of outlet reaches)
@@ -387,6 +506,7 @@ def route_network(
         Q=initial_Q,
         Q_prev=initial_Q,
         I_prev=jnp.zeros(n_reaches),
+        S_lake=jnp.zeros(n_reaches),
     )
 
     # Sub-step by holding each row's inflow constant over n_substeps steps of
@@ -402,13 +522,67 @@ def route_network(
         new_state, outlet_Q = route_network_step(state, lateral, network, step_dt)
         return new_state, outlet_Q
 
-    _, outlet_series = lax.scan(scan_fn, initial_state, inflows)
+    # Checkpoint the per-timestep routing body (which itself scans over reaches)
+    # so the backward pass recomputes it from the carry rather than storing every
+    # reach's intermediates across all timesteps.
+    _, outlet_series = lax.scan(jax.checkpoint(scan_fn), initial_state, inflows)
 
     if n_substeps > 1:
         # Keep the last sub-step of each input timestep.
         outlet_series = outlet_series[n_substeps - 1::n_substeps]
 
     return outlet_series
+
+
+def route_network_full(
+    lateral_inflows: Array,
+    network: NetworkArrays,
+    dt: float = 3600.0,
+    initial_Q: Optional[Array] = None,
+    n_substeps: int = 1,
+) -> Tuple[Array, Array]:
+    """Like :func:`route_network` but also returns discharge at *every* reach.
+
+    Required for multi-gauge calibration, where the objective compares simulated
+    flow at each gauge's reach against observations.
+
+    Returns:
+        Tuple ``(outlet_series, Q_all)`` where ``outlet_series`` is
+        ``[n_timesteps]`` (summed outlet discharge) and ``Q_all`` is
+        ``[n_timesteps, n_reaches]`` discharge at each reach, both sampled at the
+        end of each input timestep.
+    """
+    n_timesteps, n_reaches = lateral_inflows.shape
+
+    if initial_Q is None:
+        initial_Q = jnp.full(n_reaches, 0.1)
+
+    initial_state = RouterState(
+        Q=initial_Q,
+        Q_prev=initial_Q,
+        I_prev=jnp.zeros(n_reaches),
+        S_lake=jnp.zeros(n_reaches),
+    )
+
+    if n_substeps > 1:
+        step_dt = dt / n_substeps
+        inflows = jnp.repeat(lateral_inflows, n_substeps, axis=0)
+    else:
+        step_dt = dt
+        inflows = lateral_inflows
+
+    def scan_fn(state, lateral):
+        new_state, outlet_Q = route_network_step(state, lateral, network, step_dt)
+        return new_state, (outlet_Q, new_state.Q)
+
+    # Checkpoint the per-timestep body (see route_network) to bound backward memory.
+    _, (outlet_series, Q_all) = lax.scan(jax.checkpoint(scan_fn), initial_state, inflows)
+
+    if n_substeps > 1:
+        outlet_series = outlet_series[n_substeps - 1::n_substeps]
+        Q_all = Q_all[n_substeps - 1::n_substeps]
+
+    return outlet_series, Q_all
 
 
 # =============================================================================
@@ -482,8 +656,9 @@ class MuskingumCungeRouter(eqx.Module):
             Q=initial_Q,
             Q_prev=initial_Q,
             I_prev=jnp.zeros(n_reaches),
+            S_lake=jnp.zeros(n_reaches),
         )
-        
+
         def scan_fn(state, lateral):
             new_state, outlet_Q = route_network_step(
                 state, lateral, self.network, self.dt

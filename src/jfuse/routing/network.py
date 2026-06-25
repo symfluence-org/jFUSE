@@ -11,7 +11,7 @@ The network structure supports:
 - Efficient adjacency representation for JAX operations
 """
 
-from typing import List, Dict, Tuple, Optional, NamedTuple, Sequence
+from typing import List, Dict, Optional, NamedTuple, Sequence
 from dataclasses import dataclass
 import jax.numpy as jnp
 from jax import Array
@@ -48,7 +48,17 @@ class Reach:
     downstream_id: int = -1
     hru_id: int = -1
     area: float = 0.0
-    
+    # --- Lake / reservoir node (optional) ---
+    # When ``is_lake`` is True the reach is routed as a storage node
+    # (level-pool / regulated outflow) instead of Muskingum-Cunge channel
+    # routing. Defaults describe "no lake" so existing reaches are unaffected.
+    is_lake: bool = False
+    lake_s_max: float = 0.0       # Active storage capacity (m³)
+    lake_q_ref: float = 0.0       # Reference outflow at full storage (m³/s)
+    lake_q_min: float = 0.0       # Minimum (e.g. environmental) release (m³/s)
+    lake_exp: float = 2.0         # Storage-discharge rating exponent
+    lake_spill_coef: float = 1.0  # Spillway release rate above capacity (1/s)
+
     def __post_init__(self):
         if self.upstream_ids is None:
             self.upstream_ids = []
@@ -93,6 +103,20 @@ class NetworkArrays(NamedTuple):
     downstream_idx: Array
     is_headwater: Array
     is_outlet: Array
+    # Topological level of each reach (headwater=0, level = max(upstream)+1) and
+    # the max level. Enable level-parallel routing: reaches sharing a level have
+    # no mutual dependency and route together, cutting the autodiff sequential
+    # depth from n_reaches to n_levels. Default None => sequential fallback.
+    reach_level: Optional[Array] = None
+    max_level: Optional[int] = None
+    # Lake / reservoir attributes [n_reaches]. Default None => pure channel
+    # routing (no lakes), preserving behaviour for networks built without them.
+    is_lake: Optional[Array] = None
+    lake_s_max: Optional[Array] = None
+    lake_q_ref: Optional[Array] = None
+    lake_q_min: Optional[Array] = None
+    lake_exp: Optional[Array] = None
+    lake_spill_coef: Optional[Array] = None
 
 
 class RiverNetwork:
@@ -207,7 +231,13 @@ class RiverNetwork:
         downstream_idx = np.full(n, -1, dtype=np.int32)
         is_headwater = np.zeros(n, dtype=bool)
         is_outlet = np.zeros(n, dtype=bool)
-        
+        is_lake = np.zeros(n, dtype=bool)
+        lake_s_max = np.zeros(n, dtype=np.float32)
+        lake_q_ref = np.zeros(n, dtype=np.float32)
+        lake_q_min = np.zeros(n, dtype=np.float32)
+        lake_exp = np.full(n, 2.0, dtype=np.float32)
+        lake_spill_coef = np.full(n, 1.0, dtype=np.float32)
+
         # Fill arrays
         for i, rid in enumerate(order):
             reach = self.reaches[rid]
@@ -220,6 +250,12 @@ class RiverNetwork:
             depth_exp[i] = reach.depth_exp
             areas[i] = reach.area
             hru_ids[i] = reach.hru_id
+            is_lake[i] = reach.is_lake
+            lake_s_max[i] = reach.lake_s_max
+            lake_q_ref[i] = reach.lake_q_ref
+            lake_q_min[i] = reach.lake_q_min
+            lake_exp[i] = reach.lake_exp
+            lake_spill_coef[i] = reach.lake_spill_coef
             
             # Upstream mask
             for up_id in reach.upstream_ids:
@@ -233,6 +269,14 @@ class RiverNetwork:
             # Headwater/outlet flags
             is_headwater[i] = len(reach.upstream_ids) == 0
             is_outlet[i] = reach.downstream_id < 0
+
+        # Topological level: order is headwater-first (Kahn), so each reach's
+        # upstream are already assigned. level = max(upstream level) + 1.
+        reach_level = np.zeros(n, dtype=np.int32)
+        for i in range(n):
+            ups = np.where(upstream_mask[i])[0]
+            reach_level[i] = (int(reach_level[ups].max()) + 1) if ups.size else 0
+        max_level = int(reach_level.max()) if n else 0
         
         return NetworkArrays(
             n_reaches=n,
@@ -250,6 +294,14 @@ class RiverNetwork:
             downstream_idx=jnp.array(downstream_idx),
             is_headwater=jnp.array(is_headwater),
             is_outlet=jnp.array(is_outlet),
+            reach_level=jnp.array(reach_level),
+            max_level=max_level,
+            is_lake=jnp.array(is_lake),
+            lake_s_max=jnp.array(lake_s_max),
+            lake_q_ref=jnp.array(lake_q_ref),
+            lake_q_min=jnp.array(lake_q_min),
+            lake_exp=jnp.array(lake_exp),
+            lake_spill_coef=jnp.array(lake_spill_coef),
         )
     
     def get_outlet_ids(self) -> List[int]:
@@ -291,12 +343,14 @@ def create_network_from_topology(
     """
     n = len(reach_ids)
     
-    # Defaults
-    if manning_n is None:
+    # Defaults. mizuRoute topologies carry a separate HRU dimension
+    # (n_HRU != n_seg), so per-HRU arrays passed here (areas, hru_ids) may not be
+    # per-reach — fall back rather than index out of range.
+    if manning_n is None or len(manning_n) != n:
         manning_n = [0.035] * n
-    if areas is None:
+    if areas is None or len(areas) != n:
         areas = [0.0] * n
-    if hru_ids is None:
+    if hru_ids is None or len(hru_ids) != n:
         hru_ids = list(reach_ids)
     
     # Build upstream relationships

@@ -11,29 +11,26 @@ The coupling handles:
 - Proper gradient flow through both components
 """
 
-from typing import Tuple, Optional, Dict, Any, NamedTuple
+from typing import Tuple, Optional, NamedTuple
 from functools import partial
 import math
 import warnings
 
 import jax
 import jax.numpy as jnp
-from jax import Array, lax
+from jax import Array
 import equinox as eqx
 
 from .fuse import (
     FUSEModel,
     State as FUSEState,
     Parameters as FUSEParameters,
-    Forcing,
     ModelConfig,
     PRMS_CONFIG,
     fuse_simulate,
 )
 from .routing import (
-    MuskingumCungeRouter,
     NetworkArrays,
-    RiverNetwork,
 )
 
 
@@ -48,13 +45,86 @@ class CoupledState(NamedTuple):
     router_Q: Array
 
 
+class LakeRuleParams(NamedTuple):
+    """Global multipliers on the per-reach lake/reservoir operating rules.
+
+    HydroLAKES gives the spatial pattern (per-lake ``q_ref`` from ``Dis_avg``,
+    capacity from ``Vol_total``); these scalars let calibration tune the rules
+    globally against observed downstream flow, without per-lake operation data:
+
+        q_ref_eff  = q_ref_base  * q_ref_mult
+        q_min_eff  = q_min_frac  * q_ref_eff      (min release as a frac of q_ref)
+        exp_eff    = exp                          (global rating exponent)
+        spill_eff  = spill_base  * spill_mult
+
+    All AD-active. Applied only to reaches flagged ``is_lake``.
+    """
+    q_ref_mult: Array
+    q_min_frac: Array
+    exp: Array
+    spill_mult: Array
+
+
+# Bounds for the lake operating-rule multipliers (used by the calibrator).
+# Order defines the layout of the trailing lake block in a calibration vector.
+LAKE_RULE_BOUNDS = {
+    "LAKE_Q_REF_MULT": (0.2, 5.0),
+    "LAKE_Q_MIN_FRAC": (0.0, 0.9),
+    "LAKE_EXP": (0.5, 5.0),
+    "LAKE_SPILL_MULT": (0.1, 10.0),
+}
+LAKE_RULE_NAMES = tuple(LAKE_RULE_BOUNDS.keys())
+
+# Neutral starting values: q_ref/spill unchanged (×1), a modest min release,
+# the standard weir exponent — i.e. "use HydroLAKES defaults as-is" until the
+# calibrator moves them.
+LAKE_RULE_DEFAULTS = {
+    "LAKE_Q_REF_MULT": 1.0,
+    "LAKE_Q_MIN_FRAC": 0.1,
+    "LAKE_EXP": 2.0,
+    "LAKE_SPILL_MULT": 1.0,
+}
+
+
+def build_lake_rules(values) -> "LakeRuleParams":
+    """Build :class:`LakeRuleParams` from a length-4 array/sequence ordered as
+    :data:`LAKE_RULE_NAMES` (q_ref_mult, q_min_frac, exp, spill_mult).
+
+    Lets a calibrator carry the four lake multipliers as a trailing block of its
+    parameter vector and map them back with one call.
+    """
+    return LakeRuleParams(values[0], values[1], values[2], values[3])
+
+
+def apply_lake_rules(network: NetworkArrays, lake_rules: Optional["LakeRuleParams"]) -> NetworkArrays:
+    """Apply global operating-rule multipliers to a network's lake reaches.
+
+    Returns ``network`` unchanged when ``lake_rules`` is None or the network has
+    no lake attributes.
+    """
+    if lake_rules is None or getattr(network, "is_lake", None) is None:
+        return network
+    is_lake = network.is_lake
+    q_ref = network.lake_q_ref * lake_rules.q_ref_mult
+    q_min = lake_rules.q_min_frac * q_ref
+    exp = jnp.broadcast_to(lake_rules.exp, network.lake_exp.shape)
+    spill = network.lake_spill_coef * lake_rules.spill_mult
+    return network._replace(
+        lake_q_ref=jnp.where(is_lake, q_ref, network.lake_q_ref),
+        lake_q_min=jnp.where(is_lake, q_min, network.lake_q_min),
+        lake_exp=jnp.where(is_lake, exp, network.lake_exp),
+        lake_spill_coef=jnp.where(is_lake, spill, network.lake_spill_coef),
+    )
+
+
 class CoupledParams(NamedTuple):
     """Combined parameters for coupled model.
-    
+
     Attributes:
         fuse_params: FUSE model parameters [n_hrus, n_params] or [n_params]
         manning_n: Manning's n for each reach [n_reaches]
         geometry: Optional geometry parameters (width_coef, etc.)
+        lake_rules: Optional global lake/reservoir operating-rule multipliers.
     """
     fuse_params: FUSEParameters
     manning_n: Array
@@ -62,6 +132,7 @@ class CoupledParams(NamedTuple):
     width_exp: Optional[Array] = None
     depth_coef: Optional[Array] = None
     depth_exp: Optional[Array] = None
+    lake_rules: Optional[LakeRuleParams] = None
 
 
 def runoff_to_inflow(
@@ -100,6 +171,7 @@ def coupled_simulate(
     routing_dt: Optional[float] = None,
     n_substeps: int = 1,
     start_doy: int = 1,
+    glacier_frac: Optional[Array] = None,
 ) -> Tuple[Array, Array, FUSEState]:
     """Run coupled FUSE + routing simulation.
     
@@ -134,7 +206,6 @@ def coupled_simulate(
         - final_fuse_state: Final FUSE state
     """
     precip, pet, temp = forcing_series
-    n_timesteps = precip.shape[0]
     n_hrus = hru_areas.shape[0]
     n_reaches = network.n_reaches
 
@@ -150,7 +221,8 @@ def coupled_simulate(
     if initial_Q is None:
         initial_Q = jnp.full(n_reaches, 0.1)
     
-    # Run FUSE simulation
+    # Run FUSE simulation (glacier_frac, when given and enabled in fuse_config,
+    # area-weights each HRU's runoff between soil column and glacier component).
     runoff, final_fuse_state = fuse_simulate(
         forcing_series,
         initial_fuse_state,
@@ -158,6 +230,7 @@ def coupled_simulate(
         fuse_config,
         fuse_dt,
         start_doy,
+        glacier_frac=glacier_frac,
     )
     
     # Convert runoff to lateral inflow (m³/s)
@@ -197,8 +270,65 @@ def coupled_simulate(
     outlet_Q = route_network(
         lateral_inflow, updated_network, routing_dt, initial_Q, n_substeps=n_substeps
     )
-    
+
     return outlet_Q, runoff, final_fuse_state
+
+
+def coupled_simulate_full(
+    forcing_series: Tuple[Array, Array, Array],
+    fuse_params: FUSEParameters,
+    manning_n: Array,
+    network: NetworkArrays,
+    hru_areas: Array,
+    fuse_config: ModelConfig,
+    initial_fuse_state: Optional[FUSEState] = None,
+    initial_Q: Optional[Array] = None,
+    fuse_dt: float = 1.0,
+    routing_dt: Optional[float] = None,
+    n_substeps: int = 1,
+    start_doy: int = 1,
+    glacier_frac: Optional[Array] = None,
+) -> Tuple[Array, Array, FUSEState]:
+    """Coupled FUSE + routing simulation that also returns per-reach discharge.
+
+    Identical to :func:`coupled_simulate` but routes with
+    :func:`route_network_full`, exposing ``Q_all`` ``[n_timesteps, n_reaches]``.
+    Used by multi-gauge calibration, which reads simulated flow at each gauge's
+    reach.
+
+    Returns:
+        Tuple ``(outlet_Q, Q_all, final_fuse_state)``.
+    """
+    if routing_dt is None:
+        routing_dt = fuse_dt * 86400.0
+    n_hrus = hru_areas.shape[0]
+    n_reaches = network.n_reaches
+    if initial_fuse_state is None:
+        initial_fuse_state = FUSEState.default(n_hrus)
+    if initial_Q is None:
+        initial_Q = jnp.full(n_reaches, 0.1)
+
+    runoff, final_fuse_state = fuse_simulate(
+        forcing_series, initial_fuse_state, fuse_params, fuse_config,
+        fuse_dt, start_doy, glacier_frac=glacier_frac,
+    )
+
+    lateral_inflow = runoff_to_inflow(runoff, hru_areas, fuse_dt * 86400.0)
+    if n_hrus < n_reaches:
+        lateral_inflow = jnp.pad(
+            lateral_inflow, ((0, 0), (0, n_reaches - n_hrus)),
+            mode='constant', constant_values=0.0)
+    elif n_hrus > n_reaches:
+        base_inflow = lateral_inflow[:, :n_reaches - 1]
+        excess_inflow = jnp.sum(lateral_inflow[:, n_reaches - 1:], axis=1, keepdims=True)
+        lateral_inflow = jnp.concatenate([base_inflow, excess_inflow], axis=1)
+
+    updated_network = network._replace(manning_n=manning_n)
+    from .routing import route_network_full
+    outlet_Q, Q_all = route_network_full(
+        lateral_inflow, updated_network, routing_dt, initial_Q, n_substeps=n_substeps
+    )
+    return outlet_Q, Q_all, final_fuse_state
 
 
 def _resolve_n_substeps(
@@ -258,6 +388,7 @@ class CoupledModel(eqx.Module):
     fuse_model: FUSEModel
     network: NetworkArrays
     hru_areas: Array
+    glacier_frac: Optional[Array]
     routing_dt: Optional[float] = eqx.field(static=True)
     n_substeps: int = eqx.field(static=True)
 
@@ -270,6 +401,7 @@ class CoupledModel(eqx.Module):
         routing_dt: Optional[float] = None,
         routing_substep_method: str = 'adaptive',
         routing_max_substeps: int = 10,
+        glacier_frac: Optional[Array] = None,
     ):
         """Initialize coupled model.
         
@@ -294,6 +426,9 @@ class CoupledModel(eqx.Module):
         self.fuse_model = FUSEModel(config=fuse_config, n_hrus=len(hru_areas))
         self.network = network
         self.hru_areas = hru_areas
+        # Static per-HRU glacier fraction (None => no glacier). Aligned to the
+        # same HRU ordering as hru_areas / forcing.
+        self.glacier_frac = glacier_frac
         self.routing_dt = routing_dt
         # Resolve a static sub-step count from the (concrete) network geometry.
         self.n_substeps = _resolve_n_substeps(
@@ -370,9 +505,11 @@ class CoupledModel(eqx.Module):
             initial_fuse_state = initial_state.fuse_state
             initial_Q = initial_state.router_Q
         
-        # Update network Manning's n
-        network = self.network._replace(manning_n=params.manning_n)
-        
+        # Update network Manning's n + apply calibrated lake operating rules.
+        network = apply_lake_rules(
+            self.network._replace(manning_n=params.manning_n),
+            getattr(params, "lake_rules", None))
+
         outlet_Q, runoff, _ = coupled_simulate(
             forcing_series,
             params.fuse_params,
@@ -386,10 +523,53 @@ class CoupledModel(eqx.Module):
             routing_dt=self.routing_dt,
             n_substeps=self.n_substeps,
             start_doy=start_doy,
+            glacier_frac=self.glacier_frac,
         )
-        
+
         return outlet_Q, runoff
-    
+
+    def simulate_full(
+        self,
+        forcing_series: Tuple[Array, Array, Array],
+        params: CoupledParams,
+        initial_state: Optional[CoupledState] = None,
+        start_doy: int = 1,
+    ) -> Tuple[Array, Array, Array]:
+        """Run coupled simulation, returning discharge at every reach.
+
+        Like :meth:`simulate` but exposes per-reach discharge for multi-gauge
+        calibration (the loss reads simulated flow at each gauge's reach).
+
+        Returns:
+            Tuple ``(outlet_Q, Q_all, runoff)`` where ``Q_all`` is
+            ``[n_timesteps, n_reaches]``.
+        """
+        initial_fuse_state = None
+        initial_Q = None
+        if initial_state is not None:
+            initial_fuse_state = initial_state.fuse_state
+            initial_Q = initial_state.router_Q
+
+        network = apply_lake_rules(
+            self.network._replace(manning_n=params.manning_n),
+            getattr(params, "lake_rules", None))
+        outlet_Q, Q_all, final_state = coupled_simulate_full(
+            forcing_series,
+            params.fuse_params,
+            params.manning_n,
+            network,
+            self.hru_areas,
+            self.fuse_model.config,
+            initial_fuse_state,
+            initial_Q,
+            fuse_dt=1.0,
+            routing_dt=self.routing_dt,
+            n_substeps=self.n_substeps,
+            start_doy=start_doy,
+            glacier_frac=self.glacier_frac,
+        )
+        return outlet_Q, Q_all, final_state
+
     @property
     def n_hrus(self) -> int:
         """Number of HRUs."""

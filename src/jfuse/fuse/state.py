@@ -10,7 +10,7 @@ References:
     (FUSE). Water Resources Research, 44, W00B02.
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 import jax.numpy as jnp
 from jax import Array
 import equinox as eqx
@@ -52,6 +52,10 @@ PARAM_NAMES = (
     "MFMAX",       # Maximum seasonal melt factor (mm/°C/day)
     "MFMIN",       # Minimum seasonal melt factor (mm/°C/day)
     "smooth_frac", # Smoothing fraction for overflow
+    # --- Glacier module (appended; indices preserved for legacy arrays) ---
+    "DDF_ice",     # Ice degree-day melt factor (mm/°C/day)
+    "T_ice",       # Ice-melt threshold temperature (°C)
+    "K_glac",      # Glacier-reservoir release coefficient (1/day)
 )
 
 # Parameter bounds: (lower, upper)
@@ -86,9 +90,19 @@ PARAM_BOUNDS: Dict[str, Tuple[float, float]] = {
     "MFMAX":       (1.0, 8.0),
     "MFMIN":       (0.1, 2.0),
     "smooth_frac": (0.001, 0.1),
+    # Glacier: ice DDF usually exceeds the snow factor (lower ice albedo);
+    # 3-15 mm/°C/day spans clean to debris-influenced ice. K_glac fast (days).
+    "DDF_ice":     (3.0, 15.0),
+    "T_ice":       (-2.0, 2.0),
+    "K_glac":      (0.01, 1.0),
 }
 
 NUM_PARAMETERS = len(PARAM_NAMES)
+
+# Default initial ice store (mm w.e.). ~1e7 mm is effectively inexhaustible over
+# a calibration horizon (a 3000 mm/yr ablation glacier melts ~24,000 mm in 8
+# years), so the glacier behaves fixed-geometry unless ICE is initialised lower.
+DEFAULT_ICE = 1.0e7
 
 
 def get_param_bounds_arrays() -> Tuple[Array, Array]:
@@ -123,6 +137,8 @@ class State(eqx.Module):
         S2_FA: Primary baseflow reservoir
         S2_FB: Secondary baseflow reservoir
         SWE: Snow water equivalent
+        ICE: Glacier ice store (mm w.e.); large => fixed-geometry glacier
+        S_glac: Fast glacier-reservoir storage (mm)
     """
     S1: Array
     S1_T: Array
@@ -134,7 +150,12 @@ class State(eqx.Module):
     S2_FA: Array
     S2_FB: Array
     SWE: Array
-    
+    # Glacier states default so pre-glacier ``State(...)`` construction (and
+    # downstream callers) keep working; ``fuse_simulate`` broadcasts state
+    # leaves to the per-HRU shape, so scalar defaults are fine.
+    ICE: Array = eqx.field(default=DEFAULT_ICE)
+    S_glac: Array = eqx.field(default=0.0)
+
     @classmethod
     def default(cls, n_hrus: int = 1) -> "State":
         """Create default initial state.
@@ -159,18 +180,28 @@ class State(eqx.Module):
             S2_FA=jnp.full(shape, 120.0, dtype=dtype),
             S2_FB=jnp.full(shape, 120.0, dtype=dtype),
             SWE=jnp.full(shape, 0.0, dtype=dtype),
+            ICE=jnp.full(shape, DEFAULT_ICE, dtype=dtype),
+            S_glac=jnp.full(shape, 0.0, dtype=dtype),
         )
-    
+
     def to_array(self) -> Array:
         """Flatten state to array for numerical integration."""
         return jnp.stack([
             self.S1, self.S1_T, self.S1_TA, self.S1_TB, self.S1_F,
-            self.S2, self.S2_T, self.S2_FA, self.S2_FB, self.SWE
+            self.S2, self.S2_T, self.S2_FA, self.S2_FB, self.SWE,
+            self.ICE, self.S_glac,
         ], axis=-1)
-    
+
     @classmethod
     def from_array(cls, arr: Array) -> "State":
-        """Reconstruct state from flattened array."""
+        """Reconstruct state from flattened array.
+
+        Tolerates legacy 10-column arrays (pre-glacier) by defaulting the ice
+        store and glacier reservoir.
+        """
+        has_glacier = arr.shape[-1] >= 12
+        ICE = arr[..., 10] if has_glacier else jnp.full_like(arr[..., 9], DEFAULT_ICE)
+        S_glac = arr[..., 11] if has_glacier else jnp.zeros_like(arr[..., 9])
         return cls(
             S1=arr[..., 0],
             S1_T=arr[..., 1],
@@ -182,6 +213,8 @@ class State(eqx.Module):
             S2_FA=arr[..., 7],
             S2_FB=arr[..., 8],
             SWE=arr[..., 9],
+            ICE=ICE,
+            S_glac=S_glac,
         )
 
 
@@ -316,9 +349,14 @@ class Parameters(eqx.Module):
     opg: Array         # Orographic precipitation gradient
     MFMAX: Array       # Maximum seasonal melt factor
     MFMIN: Array       # Minimum seasonal melt factor
-    
+
     # Smoothing
     smooth_frac: Array # Smoothing fraction for overflow
+
+    # Glacier parameters (appended to keep legacy PARAM_NAMES indices stable)
+    DDF_ice: Array     # Ice degree-day melt factor (mm/°C/day)
+    T_ice: Array       # Ice-melt threshold temperature (°C)
+    K_glac: Array      # Glacier-reservoir release coefficient (1/day)
     
     # Derived parameters (computed from above)
     S1_T_max: Array    # = f_tens * S1_max
@@ -370,6 +408,10 @@ class Parameters(eqx.Module):
             "MFMAX": 4.5,
             "MFMIN": 1.0,
             "smooth_frac": 0.01,
+            # Glacier: ice melts ~1.6x faster than snow by default; fast reservoir.
+            "DDF_ice": 7.0,
+            "T_ice": 0.0,
+            "K_glac": 0.3,
         }
         
         # Convert to arrays with explicit dtype
@@ -406,6 +448,17 @@ class Parameters(eqx.Module):
             m=m,
         )
     
+    @staticmethod
+    def _default_scalar(name: str) -> float:
+        """Default value for a parameter, used to pad legacy (pre-glacier)
+        parameter arrays. Glacier params get physical defaults; anything else
+        falls back to the midpoint of its bounds."""
+        glacier_defaults = {"DDF_ice": 7.0, "T_ice": 0.0, "K_glac": 0.3}
+        if name in glacier_defaults:
+            return glacier_defaults[name]
+        lo, hi = PARAM_BOUNDS.get(name, (0.0, 1.0))
+        return 0.5 * (lo + hi)
+
     @classmethod
     def from_array(cls, arr: Array, n_hrus: int = 1) -> "Parameters":
         """Create parameters from flat array.
@@ -420,7 +473,19 @@ class Parameters(eqx.Module):
         # Handle both single and batched cases
         if arr.ndim == 1:
             arr = arr[None, :]  # Add HRU dimension
-        
+
+        # Pad legacy arrays (pre-glacier, < NUM_PARAMETERS columns) with the
+        # default value for each missing trailing parameter so older calibration
+        # vectors and saved para_def arrays keep loading unchanged.
+        n_given = arr.shape[-1]
+        if n_given < NUM_PARAMETERS:
+            n_rows = arr.shape[0]
+            pad_cols = [
+                jnp.full((n_rows,), Parameters._default_scalar(name), dtype=arr.dtype)
+                for name in PARAM_NAMES[n_given:]
+            ]
+            arr = jnp.concatenate([arr, jnp.stack(pad_cols, axis=-1)], axis=-1)
+
         # Extract adjustable parameters
         params = {name: arr[:, i] for i, name in enumerate(PARAM_NAMES)}
         

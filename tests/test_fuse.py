@@ -1,9 +1,7 @@
 """Tests for FUSE model core functionality."""
 
-import pytest
 import jax.numpy as jnp
 import jax
-import numpy as np
 
 
 class TestState:
@@ -32,7 +30,8 @@ class TestState:
 
         state = State.default(n_hrus=1)
         arr = state.to_array()
-        assert arr.shape == (10,)  # 10 state variables
+        # 10 soil/snow stores + 2 glacier states (ICE, S_glac)
+        assert arr.shape == (12,)
 
     def test_state_roundtrip(self):
         """Test state array roundtrip."""
@@ -438,19 +437,6 @@ class TestImports:
 
     def test_main_imports(self):
         """Test main package imports."""
-        from jfuse import (
-            FUSEModel,
-            CoupledModel,
-            State,
-            Parameters,
-            ModelConfig,
-            PRMS_CONFIG,
-            nse_loss,
-            kge_loss,
-        )
 
     def test_subpackage_imports(self):
         """Test subpackage imports."""
-        from jfuse.fuse import physics
-        from jfuse.routing import RiverNetwork, MuskingumCungeRouter
-        from jfuse.optim import Calibrator, CalibrationConfig

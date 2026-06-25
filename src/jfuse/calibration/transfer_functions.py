@@ -50,6 +50,9 @@ PARAM_ATTR_MAP: Dict[str, str] = {
     'MFMAX':       'temp_C',         # Max melt factor varies with temperature
     'MFMIN':       'snow_frac',      # Min melt factor varies with snow prevalence
     'smooth_frac': 'constant',       # Numerical smoothing — no spatial variation
+    # Glacier: ice degree-day factor varies with elevation (lower, warmer,
+    # dirtier termini melt faster than high clean accumulation zones).
+    'DDF_ice':     'elev_m',
 }
 
 # Default calibrated parameter list (matches existing JFUSE_PARAMS_TO_CALIBRATE)
@@ -145,12 +148,21 @@ class JaxTransferFunctionConfig:
         # Build coefficient names and bounds
         self._coeff_names: List[str] = []
         self._coeff_bounds: List[Tuple[float, float]] = []
+        # The slope `b` enters as ``param = a + b * attr_norm`` with
+        # ``attr_norm`` in [0, 1], so to vary a parameter meaningfully its `b`
+        # bound must scale with the parameter's own range — a single global
+        # bound (e.g. ±5) is negligible for a 20,000 mm storage and absurd for a
+        # 0.1 rate. Bound `b` so the slope can span up to ``b_frac`` of the
+        # parameter range across the attribute (``b_frac`` from the configured
+        # b_bounds magnitude, capped at 1.0; default => full range).
+        b_frac = min(max(abs(self.b_bounds[0]), abs(self.b_bounds[1])), 1.0)
         for pname in self.calibrated_params:
             a_lo, a_hi = PARAM_BOUNDS[pname]
+            prange = (a_hi - a_lo) * b_frac
             self._coeff_names.append(f'{pname}_a')
             self._coeff_bounds.append((a_lo, a_hi))
             self._coeff_names.append(f'{pname}_b')
-            self._coeff_bounds.append(self.b_bounds)
+            self._coeff_bounds.append((-prange, prange))
 
         # Build param_indices: position of each calibrated param in PARAM_NAMES
         self._param_indices = np.array(
