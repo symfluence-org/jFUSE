@@ -21,7 +21,8 @@ References:
 
 import jax.numpy as jnp
 from jax import Array
-from typing import Tuple
+from jax.typing import ArrayLike
+from typing import Tuple, Optional
 
 # =============================================================================
 # SMOOTH UTILITY FUNCTIONS
@@ -53,27 +54,29 @@ def smooth_sigmoid(x: Array, k: float = 1.0) -> Array:
     return 0.5 * (1.0 + jnp.tanh(z * 0.5))
 
 
-def smooth_max(a: Array, b: Array, k: float = 0.01) -> Array:
+def smooth_max(a: ArrayLike, b: ArrayLike, k: float = 0.01) -> Array:
     """Smooth differentiable approximation to max(a, b).
 
     Uses: softmax(a,b) = 0.5*(a+b) + 0.5*sqrt((a-b)^2 + 4*k^2)
     """
+    a, b = jnp.asarray(a), jnp.asarray(b)
     diff = a - b
     smooth_abs = jnp.sqrt(diff * diff + 4 * k * k)
     return 0.5 * (a + b + smooth_abs)
 
 
-def smooth_min(a: Array, b: Array, k: float = 0.01) -> Array:
+def smooth_min(a: ArrayLike, b: ArrayLike, k: float = 0.01) -> Array:
     """Smooth differentiable approximation to min(a, b).
 
     Uses: softmin(a,b) = 0.5*(a+b) - 0.5*sqrt((a-b)^2 + 4*k^2)
     """
+    a, b = jnp.asarray(a), jnp.asarray(b)
     diff = a - b
     smooth_abs = jnp.sqrt(diff * diff + 4 * k * k)
     return 0.5 * (a + b - smooth_abs)
 
 
-def smooth_clamp(x: Array, min_val: float, max_val: float, k: float = 0.01) -> Array:
+def smooth_clamp(x: ArrayLike, min_val: ArrayLike, max_val: ArrayLike, k: float = 0.01) -> Array:
     """Smooth clamp to [min_val, max_val]."""
     return smooth_min(smooth_max(x, min_val, k), max_val, k)
 
@@ -119,8 +122,8 @@ def compute_snow(
     T_melt: Array,
     melt_rate: Array,
     day_of_year: int = 1,
-    MFMAX: Array = None,
-    MFMIN: Array = None,
+    MFMAX: Optional[Array] = None,
+    MFMIN: Optional[Array] = None,
 ) -> Tuple[Array, Array, Array]:
     """Snow accumulation and melt using temperature-index method.
 

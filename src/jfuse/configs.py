@@ -63,7 +63,7 @@ MAX_GRADIENT_CONFIG = ModelConfig(
 )
 
 # Mapping from Fortran FUSE decision names to jFUSE enums.
-FUSE_DECISION_MAP = {
+FUSE_DECISION_MAP: Dict[str, Dict[str, Any]] = {
     "ARCH1": {
         "onestate_1": UpperLayerArch.SINGLE_STATE,
         "tension1_1": UpperLayerArch.TENSION_FREE,
@@ -135,7 +135,7 @@ def build_config_from_decisions(decisions: Dict[str, Any]) -> ModelConfig:
         A ``ModelConfig`` assembled from :data:`FUSE_DECISION_MAP`, falling back
         to sensible defaults for any missing or unrecognized decision.
     """
-    resolved = {}
+    resolved: Dict[str, Any] = {}
     for key, value in decisions.items():
         if isinstance(value, list):
             resolved[key] = value[0] if value else None

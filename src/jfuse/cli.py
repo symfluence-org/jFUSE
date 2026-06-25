@@ -36,7 +36,7 @@ def load_observations_csv(
     basin_area_m2: float,
     datetime_col: str = "datetime",
     discharge_col: str = "discharge_cms",
-    datetime_format: str = None,
+    datetime_format: Optional[str] = None,
 ) -> jnp.ndarray:
     """Load observations from CSV file and align with forcing timestamps.
 
@@ -111,7 +111,7 @@ def plot_hydrograph(
     times: np.ndarray,
     simulated: np.ndarray,
     observed: Optional[np.ndarray] = None,
-    output_path: str = None,
+    output_path: Optional[str] = None,
     title: str = "Hydrograph",
     warmup_days: int = 0,
     metrics: Optional[Dict[str, float]] = None,
@@ -251,7 +251,7 @@ def load_forcing_netcdf(
     if time_var is None:
         # Try to find any dimension that looks like time
         for dim in ds.dims:
-            if "time" in dim.lower():
+            if "time" in str(dim).lower():
                 time_var = dim
                 break
         if time_var is None:
@@ -520,7 +520,7 @@ def run_simulation(
                 # Show some downstream IDs for debugging
                 print(f"  DEBUG: First 5 downstream_idx: {list(network_arrays.downstream_idx[:5])}")
 
-        model = CoupledModel(
+        model: Any = CoupledModel(
             fuse_config=config,
             network=network_arrays,
             hru_areas=hru_areas,
@@ -535,8 +535,8 @@ def run_simulation(
                 "  Outlets are identified when downstream_id = 0, -1, or points to non-existent reach."
             )
 
-        params = model.default_params()
-        initial_state = None  # CoupledModel will create default
+        params: Any = model.default_params()
+        initial_state: Any = None  # CoupledModel will create default
 
         if verbose:
             print(f"  Reaches: {len(network.reaches)}")
@@ -940,7 +940,7 @@ def run_calibration(
             if n_outlets == 0:
                 print("  WARNING: No outlets found in network! Check downstream_id values.")
 
-        model = CoupledModel(
+        model: Any = CoupledModel(
             fuse_config=config,
             network=network_arrays,
             hru_areas=hru_areas,

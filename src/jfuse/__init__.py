@@ -26,6 +26,8 @@ import jax
 
 jax.config.update("jax_enable_x64", False)
 
+from typing import Optional
+
 __version__ = "0.2.1"
 __author__ = "Darri Eythorsson"
 
@@ -115,7 +117,7 @@ from jfuse.optim.calibration import (
 def quick_setup(
     forcing_path: str,
     network_path: str,
-    config: ModelConfig = None,
+    config: Optional[ModelConfig] = None,
 ) -> CoupledModel:
     """
     Quick setup of a coupled FUSE + routing model from NetCDF files.

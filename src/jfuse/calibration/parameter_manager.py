@@ -10,7 +10,7 @@ Uses jFUSE's native PARAM_BOUNDS when available, with fallback defaults.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -139,7 +139,7 @@ class JFUSEParameterManager(BaseParameterManager):
         self._use_transfer_functions = bool(
             self._get_jfuse_cfg("USE_TRANSFER_FUNCTIONS", default=False)
         )
-        self._tf_config = None
+        self._tf_config: Any = None  # JaxTransferFunctionConfig, set lazily
 
         # Parse jFUSE parameters to calibrate from config
         jfuse_params_str = self._get_jfuse_cfg("PARAMS_TO_CALIBRATE")

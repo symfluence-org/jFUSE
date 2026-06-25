@@ -49,19 +49,19 @@ try:
 except ImportError:
     HAS_JFUSE = False
     HAS_EQUINOX = False
-    jfuse = None
-    eqx = None
-    FUSEModel = None
-    ModelConfig = None
+    jfuse = None  # type: ignore[assignment]
+    eqx = None  # type: ignore[assignment]
+    FUSEModel = None  # type: ignore[assignment,misc]
+    ModelConfig = None  # type: ignore[assignment,misc]
     PARAM_BOUNDS = {}
     JFUSE_CONFIGS = {}
-    SnowType = None
-    create_fuse_model = None
-    Parameters = None
-    PRMS_GRADIENT_CONFIG = None
-    MAX_GRADIENT_CONFIG = None
+    SnowType = None  # type: ignore[assignment,misc]
+    create_fuse_model = None  # type: ignore[assignment]
+    Parameters = None  # type: ignore[assignment,misc]
+    PRMS_GRADIENT_CONFIG = None  # type: ignore[assignment]
+    MAX_GRADIENT_CONFIG = None  # type: ignore[assignment]
     FUSE_DECISION_MAP = {}
-    build_config_from_decisions = None
+    build_config_from_decisions = None  # type: ignore[assignment]
 
 try:
     import jax
@@ -70,8 +70,8 @@ try:
     HAS_JAX = True
 except ImportError:
     HAS_JAX = False
-    jax = None
-    jnp = None
+    jax = None  # type: ignore[assignment]
+    jnp = None  # type: ignore[assignment]
 
 
 class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
@@ -357,7 +357,9 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         for name, value in param_dict.items():
             if hasattr(params, name):
                 params = eqx.tree_at(
-                    lambda p, _name=name: getattr(p, _name), params, jnp.array(float(value))
+                    lambda p, _name=name: getattr(p, _name),  # type: ignore[misc]
+                    params,
+                    jnp.array(float(value)),
                 )
 
         return params
@@ -908,10 +910,10 @@ class JFUSERunner(BaseModelRunner, SpatialOrchestrator):  # type: ignore[misc]
         # Run simulation - jfuse expects forcing tuple as (precip, pet, temp)
         forcing_tuple = (precip, pet, temp)
         runoff, _ = model.simulate(forcing_tuple, params_obj)
-        runoff = np.array(runoff)
+        runoff_np = np.asarray(runoff)
 
         # Skip warmup for both simulation and observations
-        sim = runoff[self.warmup_days :] if len(runoff) > self.warmup_days else runoff
+        sim = runoff_np[self.warmup_days :] if len(runoff_np) > self.warmup_days else runoff_np
         obs_arr = obs[self.warmup_days :] if len(obs) > self.warmup_days else obs
 
         # Align lengths

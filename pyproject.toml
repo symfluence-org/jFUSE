@@ -106,7 +106,11 @@ target-version = "py311"
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+# warn_return_any is intentionally off: the code interfaces heavily with
+# untyped numpy / xarray / jax / symfluence APIs that return Any, so this flag
+# fires on values that are in fact the declared return type. Leaving it on
+# would require scattering cast() calls that add noise without catching bugs.
+warn_return_any = false
 warn_unused_configs = true
 ignore_missing_imports = true
 
