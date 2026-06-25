@@ -26,7 +26,7 @@ from .filemanager import (
 __all__ = [
     # NetCDF I/O
     "load_forcing",
-    "load_network", 
+    "load_network",
     "load_observations",
     "save_results",
     "save_state",

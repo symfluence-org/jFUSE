@@ -21,12 +21,21 @@ import pandas as pd
 PROJECT_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_DIR / "src"))
 
-from jfuse.fuse.model import fuse_simulate, create_fuse_model
+from jfuse.fuse.model import create_fuse_model
 from jfuse.fuse.state import FUSEState, FUSEParams, FUSEForcing, get_default_params
 from jfuse.fuse.config import (
-    PRMS_CONFIG, SACRAMENTO_CONFIG, TOPMODEL_CONFIG, VIC_CONFIG,
-    FUSEDecisions, UpperLayerArch, LowerLayerArch, BaseflowType,
-    PercolationType, SurfaceRunoffType, EvaporationType, InterflowType
+    PRMS_CONFIG,
+    SACRAMENTO_CONFIG,
+    TOPMODEL_CONFIG,
+    VIC_CONFIG,
+    FUSEDecisions,
+    UpperLayerArch,
+    LowerLayerArch,
+    BaseflowType,
+    PercolationType,
+    SurfaceRunoffType,
+    EvaporationType,
+    InterflowType,
 )
 
 import jax
@@ -73,9 +82,9 @@ def generate_all_valid_configs():
                                     )
                                     # Check if this is already in named configs
                                     is_named = any(
-                                        c.upper_layer_arch == config.upper_layer_arch and
-                                        c.lower_layer_arch == config.lower_layer_arch and
-                                        c.baseflow == config.baseflow
+                                        c.upper_layer_arch == config.upper_layer_arch
+                                        and c.lower_layer_arch == config.lower_layer_arch
+                                        and c.baseflow == config.baseflow
                                         for _, c in named
                                     )
                                     if not is_named:
@@ -111,8 +120,9 @@ def generate_synthetic_forcing(n_timesteps: int = 365, seed: int = 42):
     )
 
 
-def run_jfuse_simulation(config: FUSEDecisions, params: FUSEParams,
-                         forcing: FUSEForcing, initial_state: FUSEState):
+def run_jfuse_simulation(
+    config: FUSEDecisions, params: FUSEParams, forcing: FUSEForcing, initial_state: FUSEState
+):
     """Run jFUSE simulation and return discharge time series."""
     model = create_fuse_model(config)
 
@@ -125,8 +135,9 @@ def run_jfuse_simulation(config: FUSEDecisions, params: FUSEParams,
     return np.array(flux_history.q_total)
 
 
-def simulate_reference_fortran(config: FUSEDecisions, params: FUSEParams,
-                               forcing: FUSEForcing, initial_state: FUSEState):
+def simulate_reference_fortran(
+    config: FUSEDecisions, params: FUSEParams, forcing: FUSEForcing, initial_state: FUSEState
+):
     """
     Simulate using reference Fortran FUSE (placeholder).
 
@@ -144,8 +155,9 @@ def simulate_reference_fortran(config: FUSEDecisions, params: FUSEParams,
     return jfuse_output + noise
 
 
-def simulate_reference_dfuse(config: FUSEDecisions, params: FUSEParams,
-                             forcing: FUSEForcing, initial_state: FUSEState):
+def simulate_reference_dfuse(
+    config: FUSEDecisions, params: FUSEParams, forcing: FUSEForcing, initial_state: FUSEState
+):
     """
     Simulate using dFUSE/cFUSE (placeholder).
 
@@ -179,7 +191,7 @@ def compute_metrics(sim: np.ndarray, ref: np.ndarray):
 def run_experiment(quick: bool = False):
     """Run the model fidelity experiment."""
     print("Experiment 1: Model Fidelity")
-    print("="*50)
+    print("=" * 50)
 
     # Generate configurations
     configs = generate_all_valid_configs()
@@ -213,35 +225,39 @@ def run_experiment(quick: bool = False):
             vs_fortran = compute_metrics(jfuse_output, fortran_output)
             vs_dfuse = compute_metrics(jfuse_output, dfuse_output)
 
-            results.append({
-                "config_name": name,
-                "upper_layer": config.upper_layer_arch.name,
-                "lower_layer": config.lower_layer_arch.name,
-                "baseflow": config.baseflow.name,
-                "vs_fortran_rmse": vs_fortran["rmse"],
-                "vs_fortran_corr": vs_fortran["correlation"],
-                "vs_fortran_max_error": vs_fortran["max_error"],
-                "vs_dfuse_rmse": vs_dfuse["rmse"],
-                "vs_dfuse_corr": vs_dfuse["correlation"],
-                "vs_dfuse_max_error": vs_dfuse["max_error"],
-            })
+            results.append(
+                {
+                    "config_name": name,
+                    "upper_layer": config.upper_layer_arch.name,
+                    "lower_layer": config.lower_layer_arch.name,
+                    "baseflow": config.baseflow.name,
+                    "vs_fortran_rmse": vs_fortran["rmse"],
+                    "vs_fortran_corr": vs_fortran["correlation"],
+                    "vs_fortran_max_error": vs_fortran["max_error"],
+                    "vs_dfuse_rmse": vs_dfuse["rmse"],
+                    "vs_dfuse_corr": vs_dfuse["correlation"],
+                    "vs_dfuse_max_error": vs_dfuse["max_error"],
+                }
+            )
 
             print(f"RMSE: {vs_fortran['rmse']:.3f} (Fortran), {vs_dfuse['rmse']:.3f} (dFUSE)")
 
         except Exception as e:
             print(f"FAILED: {e}")
-            results.append({
-                "config_name": name,
-                "upper_layer": config.upper_layer_arch.name,
-                "lower_layer": config.lower_layer_arch.name,
-                "baseflow": config.baseflow.name,
-                "vs_fortran_rmse": np.nan,
-                "vs_fortran_corr": np.nan,
-                "vs_fortran_max_error": np.nan,
-                "vs_dfuse_rmse": np.nan,
-                "vs_dfuse_corr": np.nan,
-                "vs_dfuse_max_error": np.nan,
-            })
+            results.append(
+                {
+                    "config_name": name,
+                    "upper_layer": config.upper_layer_arch.name,
+                    "lower_layer": config.lower_layer_arch.name,
+                    "baseflow": config.baseflow.name,
+                    "vs_fortran_rmse": np.nan,
+                    "vs_fortran_corr": np.nan,
+                    "vs_fortran_max_error": np.nan,
+                    "vs_dfuse_rmse": np.nan,
+                    "vs_dfuse_corr": np.nan,
+                    "vs_dfuse_max_error": np.nan,
+                }
+            )
 
     # Save detailed results
     df = pd.DataFrame(results)
@@ -251,25 +267,13 @@ def run_experiment(quick: bool = False):
     valid_results = df.dropna()
     summary = {
         "metric": ["vs_fortran", "vs_dfuse"],
-        "rmse_min": [
-            valid_results["vs_fortran_rmse"].min(),
-            valid_results["vs_dfuse_rmse"].min()
-        ],
-        "rmse_max": [
-            valid_results["vs_fortran_rmse"].max(),
-            valid_results["vs_dfuse_rmse"].max()
-        ],
-        "corr_min": [
-            valid_results["vs_fortran_corr"].min(),
-            valid_results["vs_dfuse_corr"].min()
-        ],
-        "corr_max": [
-            valid_results["vs_fortran_corr"].max(),
-            valid_results["vs_dfuse_corr"].max()
-        ],
+        "rmse_min": [valid_results["vs_fortran_rmse"].min(), valid_results["vs_dfuse_rmse"].min()],
+        "rmse_max": [valid_results["vs_fortran_rmse"].max(), valid_results["vs_dfuse_rmse"].max()],
+        "corr_min": [valid_results["vs_fortran_corr"].min(), valid_results["vs_dfuse_corr"].min()],
+        "corr_max": [valid_results["vs_fortran_corr"].max(), valid_results["vs_dfuse_corr"].max()],
         "max_error_max": [
             valid_results["vs_fortran_max_error"].max(),
-            valid_results["vs_dfuse_max_error"].max()
+            valid_results["vs_dfuse_max_error"].max(),
         ],
         "n_structures": [len(valid_results), len(valid_results)],
     }

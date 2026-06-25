@@ -11,7 +11,7 @@ and support automatic differentiation.
 References:
     Cunge, J.A. (1969). On the Subject of a Flood Propagation Computation Method
     (Muskingum Method). Journal of Hydraulic Research, 7(2), 205-230.
-    
+
     Ponce, V.M. (1989). Engineering Hydrology: Principles and Practices.
     Prentice Hall.
 """
@@ -25,10 +25,10 @@ import equinox as eqx
 
 from .network import NetworkArrays
 
-
 # =============================================================================
 # HYDRAULIC FUNCTIONS
 # =============================================================================
+
 
 def safe_pow(base: Array, exp: Array, eps: float = 1e-6) -> Array:
     """AD-safe power function."""
@@ -45,10 +45,10 @@ def compute_channel_geometry(
     min_Q: float = 0.01,
 ) -> Tuple[Array, Array, Array, Array]:
     """Compute channel geometry from discharge using power-law relationships.
-    
+
     W = width_coef * Q^width_exp
     D = depth_coef * Q^depth_exp
-    
+
     Args:
         Q: Discharge (m³/s)
         width_coef: Width coefficient
@@ -56,19 +56,19 @@ def compute_channel_geometry(
         depth_coef: Depth coefficient
         depth_exp: Depth exponent (typically ~0.3)
         min_Q: Minimum discharge for computation
-        
+
     Returns:
         Tuple of (width, depth, area, hydraulic_radius)
     """
     Q_safe = jnp.maximum(Q, min_Q)
-    
+
     width = width_coef * safe_pow(Q_safe, width_exp)
     depth = depth_coef * safe_pow(Q_safe, depth_exp)
-    
+
     area = width * depth
     wetted_perimeter = width + 2.0 * depth  # Rectangular approximation
     hydraulic_radius = area / wetted_perimeter
-    
+
     return width, depth, area, hydraulic_radius
 
 
@@ -82,28 +82,26 @@ def compute_velocity_manning(
     depth_exp: Array,
 ) -> Array:
     """Compute velocity using Manning's equation.
-    
+
     V = (1/n) * R^(2/3) * S^(1/2)
-    
+
     Args:
         Q: Discharge (m³/s)
         slope: Channel slope (m/m)
         manning_n: Manning's roughness coefficient
         width_coef, width_exp, depth_coef, depth_exp: Geometry parameters
-        
+
     Returns:
         Flow velocity (m/s)
     """
-    _, _, area, R = compute_channel_geometry(
-        Q, width_coef, width_exp, depth_coef, depth_exp
-    )
-    
+    _, _, area, R = compute_channel_geometry(Q, width_coef, width_exp, depth_coef, depth_exp)
+
     # Manning equation
     safe_n = jnp.maximum(manning_n, 0.001)
     safe_slope = jnp.maximum(slope, 1e-6)
-    
-    velocity = (1.0 / safe_n) * safe_pow(R, 2.0/3.0) * jnp.sqrt(safe_slope)
-    
+
+    velocity = (1.0 / safe_n) * safe_pow(R, 2.0 / 3.0) * jnp.sqrt(safe_slope)
+
     return velocity
 
 
@@ -117,20 +115,18 @@ def compute_celerity(
     depth_exp: Array,
 ) -> Array:
     """Compute wave celerity for kinematic wave approximation.
-    
+
     For Manning's equation with power-law geometry:
     c = (5/3) * V (simplified kinematic wave celerity)
-    
+
     More generally: c = dQ/dA
     """
-    V = compute_velocity_manning(
-        Q, slope, manning_n, width_coef, width_exp, depth_coef, depth_exp
-    )
-    
+    V = compute_velocity_manning(Q, slope, manning_n, width_coef, width_exp, depth_coef, depth_exp)
+
     # Kinematic wave celerity is approximately 5/3 * V for wide channels
     # This can be refined with geometry
     celerity = (5.0 / 3.0) * V
-    
+
     return celerity
 
 
@@ -138,14 +134,16 @@ def compute_celerity(
 # MUSKINGUM-CUNGE ROUTING
 # =============================================================================
 
+
 class MuskingumParams(NamedTuple):
     """Muskingum routing parameters for a single reach.
-    
+
     Attributes:
         K: Storage constant (travel time, seconds)
         X: Weighting parameter [0, 0.5]
         C0, C1, C2: Muskingum coefficients
     """
+
     K: Array
     X: Array
     C0: Array
@@ -167,10 +165,10 @@ def compute_muskingum_params(
     x_upper: float = 0.5,
 ) -> MuskingumParams:
     """Compute Muskingum-Cunge parameters from reach properties.
-    
+
     K = Δx / c  (travel time)
     X = 0.5 * (1 - Q / (B * c * S * Δx))  (Cunge approximation)
-    
+
     Args:
         Q: Reference discharge (m³/s)
         length: Reach length (m)
@@ -179,47 +177,43 @@ def compute_muskingum_params(
         width_coef, width_exp, depth_coef, depth_exp: Geometry parameters
         dt: Timestep (seconds)
         x_lower, x_upper: Bounds for X parameter
-        
+
     Returns:
         MuskingumParams with computed coefficients
     """
     # Compute celerity
-    celerity = compute_celerity(
-        Q, slope, manning_n, width_coef, width_exp, depth_coef, depth_exp
-    )
+    celerity = compute_celerity(Q, slope, manning_n, width_coef, width_exp, depth_coef, depth_exp)
     celerity = jnp.maximum(celerity, 0.01)  # Minimum celerity
-    
+
     # Compute width for X calculation
-    width, _, _, _ = compute_channel_geometry(
-        Q, width_coef, width_exp, depth_coef, depth_exp
-    )
-    
+    width, _, _, _ = compute_channel_geometry(Q, width_coef, width_exp, depth_coef, depth_exp)
+
     # Storage constant K (travel time)
     K = length / celerity
     K = jnp.maximum(K, dt * 0.1)  # Minimum K
-    
+
     # Muskingum X (Cunge approximation)
     safe_slope = jnp.maximum(slope, 1e-6)
     X = 0.5 * (1.0 - Q / (width * celerity * safe_slope * length + 1e-6))
     X = jnp.clip(X, x_lower, x_upper)
-    
+
     # Muskingum coefficients
     denom = 2.0 * K * (1.0 - X) + dt
     C0 = (dt - 2.0 * K * X) / denom
     C1 = (dt + 2.0 * K * X) / denom
     C2 = (2.0 * K * (1.0 - X) - dt) / denom
-    
+
     # Ensure non-negative coefficients for stability
     C0 = jnp.maximum(C0, 0.0)
     C1 = jnp.maximum(C1, 0.0)
     C2 = jnp.maximum(C2, 0.0)
-    
+
     # Renormalize to sum to 1 (guard against all-clamped-to-zero -> NaN)
     total = jnp.maximum(C0 + C1 + C2, 1e-8)
     C0 = C0 / total
     C1 = C1 / total
     C2 = C2 / total
-    
+
     return MuskingumParams(K=K, X=X, C0=C0, C1=C1, C2=C2)
 
 
@@ -230,15 +224,15 @@ def muskingum_route_reach(
     params: MuskingumParams,
 ) -> Array:
     """Route flow through a single reach using Muskingum method.
-    
+
     Q(t+Δt) = C0*I(t+Δt) + C1*I(t) + C2*Q(t)
-    
+
     Args:
         I_prev: Inflow at previous timestep (m³/s)
         I_curr: Inflow at current timestep (m³/s)
         Q_prev: Outflow at previous timestep (m³/s)
         params: Muskingum parameters
-        
+
     Returns:
         Outflow at current timestep (m³/s)
     """
@@ -249,6 +243,7 @@ def muskingum_route_reach(
 # =============================================================================
 # LAKE / RESERVOIR ROUTING
 # =============================================================================
+
 
 def lake_outflow(
     S: Array,
@@ -297,6 +292,7 @@ def lake_outflow(
 # NETWORK ROUTING
 # =============================================================================
 
+
 class RouterState(NamedTuple):
     """State for network routing.
 
@@ -307,6 +303,7 @@ class RouterState(NamedTuple):
         S_lake: Lake/reservoir storage at each reach [n_reaches]; unused
             (zeros) on reaches that are not lakes.
     """
+
     Q: Array
     Q_prev: Array
     I_prev: Array
@@ -320,16 +317,16 @@ def route_network_step(
     dt: float,
 ) -> Tuple[RouterState, Array]:
     """Route one timestep through the river network.
-    
+
     Uses topological ordering to process reaches from upstream to downstream,
     accumulating flows at junctions.
-    
+
     Args:
         state: Current router state
         lateral_inflow: Lateral inflow to each reach (m³/s) [n_reaches]
         network: Network topology and parameters
         dt: Timestep (seconds)
-        
+
     Returns:
         Tuple of (new_state, outlet_discharge)
     """
@@ -352,9 +349,15 @@ def route_network_step(
         # Muskingum coefficients depend only on the (fixed) reference discharge
         # and geometry, so compute them once for all reaches.
         mp = compute_muskingum_params(
-            Q_ref, network.lengths, network.slopes, network.manning_n,
-            network.width_coef, network.width_exp, network.depth_coef,
-            network.depth_exp, dt,
+            Q_ref,
+            network.lengths,
+            network.slopes,
+            network.manning_n,
+            network.width_coef,
+            network.width_exp,
+            network.depth_coef,
+            network.depth_exp,
+            dt,
         )
         ds_clamped = jnp.maximum(network.downstream_idx, 0)
         not_outlet = network.downstream_idx >= 0
@@ -365,8 +368,13 @@ def route_network_step(
             Q_chan = muskingum_route_reach(state.I_prev, I_curr, state.Q_prev, mp)
             if has_lakes:
                 Q_lake_raw = lake_outflow(
-                    S_lake_prev, network.lake_s_max, network.lake_q_ref,
-                    network.lake_q_min, network.lake_exp, network.lake_spill_coef)
+                    S_lake_prev,
+                    network.lake_s_max,
+                    network.lake_q_ref,
+                    network.lake_q_min,
+                    network.lake_exp,
+                    network.lake_spill_coef,
+                )
                 Q_lake = jnp.clip(Q_lake_raw, 0.0, S_lake_prev / dt + I_curr)
                 S_new = jnp.maximum(S_lake_prev + (I_curr - Q_lake) * dt, 0.0)
                 Q_r = jnp.where(network.is_lake, Q_lake, Q_chan)
@@ -396,9 +404,7 @@ def route_network_step(
         Q_accumulated = carry
 
         # Get upstream inflow (sum of upstream reach outflows)
-        upstream_Q = jnp.sum(
-            jnp.where(network.upstream_mask[reach_idx], Q_accumulated, 0.0)
-        )
+        upstream_Q = jnp.sum(jnp.where(network.upstream_mask[reach_idx], Q_accumulated, 0.0))
 
         # Total inflow = upstream + lateral
         I_curr = upstream_Q + lateral_inflow[reach_idx]
@@ -416,9 +422,7 @@ def route_network_step(
             network.depth_exp[reach_idx],
             dt,
         )
-        Q_chan = muskingum_route_reach(
-            I_prev, I_curr, state.Q_prev[reach_idx], params
-        )
+        Q_chan = muskingum_route_reach(I_prev, I_curr, state.Q_prev[reach_idx], params)
 
         if has_lakes:
             # --- Lake / reservoir routing (storage-discharge node) ---
@@ -464,10 +468,10 @@ def route_network_step(
         I_prev=I_all,
         S_lake=S_lake_all,
     )
-    
+
     # Outlet discharge (sum of outlet reaches)
     outlet_Q = jnp.sum(jnp.where(network.is_outlet, Q_final, 0.0))
-    
+
     return new_state, outlet_Q
 
 
@@ -529,7 +533,7 @@ def route_network(
 
     if n_substeps > 1:
         # Keep the last sub-step of each input timestep.
-        outlet_series = outlet_series[n_substeps - 1::n_substeps]
+        outlet_series = outlet_series[n_substeps - 1 :: n_substeps]
 
     return outlet_series
 
@@ -579,8 +583,8 @@ def route_network_full(
     _, (outlet_series, Q_all) = lax.scan(jax.checkpoint(scan_fn), initial_state, inflows)
 
     if n_substeps > 1:
-        outlet_series = outlet_series[n_substeps - 1::n_substeps]
-        Q_all = Q_all[n_substeps - 1::n_substeps]
+        outlet_series = outlet_series[n_substeps - 1 :: n_substeps]
+        Q_all = Q_all[n_substeps - 1 :: n_substeps]
 
     return outlet_series, Q_all
 
@@ -589,69 +593,71 @@ def route_network_full(
 # ROUTER CLASS
 # =============================================================================
 
+
 class MuskingumCungeRouter(eqx.Module):
     """Muskingum-Cunge river router.
-    
+
     Wrapper class providing a convenient interface for network routing
     with configurable parameters.
-    
+
     Attributes:
         network: Network topology arrays
         dt: Routing timestep (seconds)
     """
+
     network: NetworkArrays
     dt: float = eqx.field(static=True)
-    
+
     def __init__(
         self,
         network: NetworkArrays,
         dt: float = 3600.0,
     ):
         """Initialize router.
-        
+
         Args:
             network: Network topology arrays
             dt: Routing timestep in seconds (default 1 hour)
         """
         self.network = network
         self.dt = dt
-    
+
     def route(
         self,
         lateral_inflows: Array,
         initial_Q: Optional[Array] = None,
     ) -> Array:
         """Route lateral inflows through the network.
-        
+
         Args:
             lateral_inflows: [n_timesteps, n_reaches] in m³/s
             initial_Q: Initial discharge [n_reaches]
-            
+
         Returns:
             Outlet discharge [n_timesteps]
         """
         return route_network(lateral_inflows, self.network, self.dt, initial_Q)
-    
+
     def route_with_states(
         self,
         lateral_inflows: Array,
         initial_Q: Optional[Array] = None,
     ) -> Tuple[Array, Array]:
         """Route with full state output.
-        
+
         Args:
             lateral_inflows: [n_timesteps, n_reaches] in m³/s
             initial_Q: Initial discharge [n_reaches]
-            
+
         Returns:
             Tuple of (outlet_discharge, all_reach_discharge)
             where all_reach_discharge is [n_timesteps, n_reaches]
         """
         n_timesteps, n_reaches = lateral_inflows.shape
-        
+
         if initial_Q is None:
             initial_Q = jnp.full(n_reaches, 0.1)
-        
+
         initial_state = RouterState(
             Q=initial_Q,
             Q_prev=initial_Q,
@@ -660,22 +666,18 @@ class MuskingumCungeRouter(eqx.Module):
         )
 
         def scan_fn(state, lateral):
-            new_state, outlet_Q = route_network_step(
-                state, lateral, self.network, self.dt
-            )
+            new_state, outlet_Q = route_network_step(state, lateral, self.network, self.dt)
             return new_state, (outlet_Q, new_state.Q)
-        
-        _, (outlet_series, Q_all) = lax.scan(
-            scan_fn, initial_state, lateral_inflows
-        )
-        
+
+        _, (outlet_series, Q_all) = lax.scan(scan_fn, initial_state, lateral_inflows)
+
         return outlet_series, Q_all
-    
+
     @property
     def n_reaches(self) -> int:
         """Number of reaches in the network."""
         return self.network.n_reaches
-    
+
     @property
     def manning_n(self) -> Array:
         """Manning's n values for all reaches."""

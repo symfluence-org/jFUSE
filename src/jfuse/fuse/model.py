@@ -28,10 +28,10 @@ from .config import (
 from .state import State, Flux, Parameters, Forcing
 from . import physics
 
-
 # =============================================================================
 # SINGLE TIMESTEP COMPUTATION
 # =============================================================================
+
 
 def fuse_step(
     state: State,
@@ -65,11 +65,8 @@ def fuse_step(
         Tuple of (new_state, fluxes)
     """
     # Initialize flux output
-    shape = jnp.broadcast_shapes(
-        jnp.asarray(state.S1).shape,
-        jnp.asarray(forcing.precip).shape
-    )
-    
+    shape = jnp.broadcast_shapes(jnp.asarray(state.S1).shape, jnp.asarray(forcing.precip).shape)
+
     # =========================================================================
     # SNOW MODULE
     # =========================================================================
@@ -91,7 +88,7 @@ def fuse_step(
         melt = jnp.zeros(shape)
         throughfall = forcing.precip
         SWE_new = state.SWE
-    
+
     # =========================================================================
     # SATURATED AREA & SURFACE RUNOFF (Eq 9, 11)
     # =========================================================================
@@ -101,10 +98,10 @@ def fuse_step(
         Ac = physics.compute_satarea_pareto(state.S1, params.S1_max, params.b, params.Ac_max)
     else:  # LZ_GAMMA (TOPMODEL)
         Ac = physics.compute_satarea_topmodel(state.S2, params.S2_max, params.chi, params.Ac_max)
-    
+
     qsx = physics.compute_surface_runoff(throughfall, Ac)
     infiltration = physics.smooth_max(throughfall - qsx, 0.0, 0.001)
-    
+
     # =========================================================================
     # EVAPORATION (Eq 3)
     # =========================================================================
@@ -116,11 +113,11 @@ def fuse_step(
         e1, e2 = physics.compute_evaporation_root_weighted(
             forcing.pet, state.S1, state.S2, params.S1_max, params.S2_max, params.r1
         )
-    
+
     # Lower layer evap only if architecture supports it
     if not config.has_lower_evap:
         e2 = jnp.zeros_like(e2)
-    
+
     # =========================================================================
     # PERCOLATION (Eq 4)
     # =========================================================================
@@ -129,14 +126,12 @@ def fuse_step(
             state.S1, params.S1_max, params.ku, params.c
         )
     elif config.percolation == PercolationType.FREE_STORAGE:
-        q12 = physics.compute_percolation_free_storage(
-            state.S1_F, params.S1_F_max, params.ku
-        )
+        q12 = physics.compute_percolation_free_storage(state.S1_F, params.S1_F_max, params.ku)
     else:  # LOWER_DEMAND
         q12 = physics.compute_percolation_lower_demand(
             state.S1_F, state.S2, params.S2_max, params.ku, params.alpha, params.psi
         )
-    
+
     # =========================================================================
     # INTERFLOW (Eq 5)
     # =========================================================================
@@ -144,7 +139,7 @@ def fuse_step(
         qif = physics.compute_interflow(state.S1_F, params.ki)
     else:
         qif = jnp.zeros_like(state.S1)
-    
+
     # =========================================================================
     # BASEFLOW (Eq 6)
     # =========================================================================
@@ -157,18 +152,14 @@ def fuse_step(
             state.S2_FA, state.S2_FB, params.v_A, params.v_B
         )
     elif config.baseflow == BaseflowType.NONLINEAR:
-        qb = physics.compute_baseflow_nonlinear(
-            state.S2, params.S2_max, params.ks, params.n
-        )
+        qb = physics.compute_baseflow_nonlinear(state.S2, params.S2_max, params.ks, params.n)
         qb_A = qb
         qb_B = jnp.zeros_like(qb)
     else:  # TOPMODEL
-        qb = physics.compute_baseflow_topmodel(
-            state.S2, params.S2_max, params.ks, params.m
-        )
+        qb = physics.compute_baseflow_topmodel(state.S2, params.S2_max, params.ks, params.m)
         qb_A = qb
         qb_B = jnp.zeros_like(qb)
-    
+
     # =========================================================================
     # STATE UPDATE (Forward Euler)
     # =========================================================================
@@ -181,48 +172,46 @@ def fuse_step(
         S1_F_new = S1_new * (1.0 - params.f_tens)
         S1_TA_new = S1_T_new * params.f_rchr
         S1_TB_new = S1_T_new * (1.0 - params.f_rchr)
-        
+
     elif config.upper_arch == UpperLayerArch.TENSION_FREE:
         # Overflow from tension to free
         overflow_T = physics.logistic_overflow(
-            state.S1_T + infiltration - e1,
-            params.S1_T_max,
-            params.smooth_frac * params.S1_T_max
+            state.S1_T + infiltration - e1, params.S1_T_max, params.smooth_frac * params.S1_T_max
         ) * (infiltration - e1)
-        
+
         dS1_T = infiltration - e1 - overflow_T
         dS1_F = overflow_T - q12 - qif
-        
+
         S1_T_new = physics.smooth_clamp(state.S1_T + dS1_T * dt, 0.0, params.S1_T_max)
         S1_F_new = physics.smooth_clamp(state.S1_F + dS1_F * dt, 0.0, params.S1_F_max)
         S1_new = S1_T_new + S1_F_new
         S1_TA_new = S1_T_new * params.f_rchr
         S1_TB_new = S1_T_new * (1.0 - params.f_rchr)
-        
+
     else:  # TENSION2_FREE
         # Cascade through tension stores
         overflow_TA = physics.logistic_overflow(
             state.S1_TA + infiltration - e1 * params.f_rchr,
             params.S1_TA_max,
-            params.smooth_frac * params.S1_TA_max
+            params.smooth_frac * params.S1_TA_max,
         ) * (infiltration - e1 * params.f_rchr)
-        
+
         overflow_TB = physics.logistic_overflow(
             state.S1_TB + overflow_TA - e1 * (1.0 - params.f_rchr),
             params.S1_TB_max,
-            params.smooth_frac * params.S1_TB_max
+            params.smooth_frac * params.S1_TB_max,
         ) * (overflow_TA - e1 * (1.0 - params.f_rchr))
-        
+
         dS1_TA = infiltration - e1 * params.f_rchr - overflow_TA
         dS1_TB = overflow_TA - e1 * (1.0 - params.f_rchr) - overflow_TB
         dS1_F = overflow_TB - q12 - qif
-        
+
         S1_TA_new = physics.smooth_clamp(state.S1_TA + dS1_TA * dt, 0.0, params.S1_TA_max)
         S1_TB_new = physics.smooth_clamp(state.S1_TB + dS1_TB * dt, 0.0, params.S1_TB_max)
         S1_F_new = physics.smooth_clamp(state.S1_F + dS1_F * dt, 0.0, params.S1_F_max)
         S1_T_new = S1_TA_new + S1_TB_new
         S1_new = S1_T_new + S1_F_new
-    
+
     # Lower layer
     if config.lower_arch == LowerLayerArch.SINGLE_NOEVAP:
         dS2 = q12 - qb
@@ -230,26 +219,24 @@ def fuse_step(
         S2_T_new = S2_new
         S2_FA_new = S2_new
         S2_FB_new = jnp.zeros_like(S2_new)
-        
+
     elif config.lower_arch == LowerLayerArch.SINGLE_EVAP:
         dS2 = q12 - e2 - qb
         S2_new = physics.smooth_clamp(state.S2 + dS2 * dt, 0.0, params.S2_max)
         S2_T_new = S2_new
         S2_FA_new = S2_new
         S2_FB_new = jnp.zeros_like(S2_new)
-        
+
     else:  # TENSION_2RESERV
         # Split percolation between tension and free
         to_tension = params.kappa * q12
         to_free = (1.0 - params.kappa) * q12
-        
+
         # Overflow from tension
         overflow_T = physics.logistic_overflow(
-            state.S2_T + to_tension - e2,
-            params.S2_T_max,
-            params.smooth_frac * params.S2_T_max
+            state.S2_T + to_tension - e2, params.S2_T_max, params.smooth_frac * params.S2_T_max
         ) * (to_tension - e2)
-        
+
         dS2_T = to_tension - e2 - overflow_T
         # Split free-water recharge in proportion to the two reservoirs'
         # capacities (S2_FA_max = f_base * S2_F_max, S2_FB_max = (1 - f_base) *
@@ -259,12 +246,12 @@ def fuse_step(
         free_inflow = to_free + overflow_T
         dS2_FA = params.f_base * free_inflow - qb_A
         dS2_FB = (1.0 - params.f_base) * free_inflow - qb_B
-        
+
         S2_T_new = physics.smooth_clamp(state.S2_T + dS2_T * dt, 0.0, params.S2_T_max)
         S2_FA_new = physics.smooth_clamp(state.S2_FA + dS2_FA * dt, 0.0, params.S2_FA_max)
         S2_FB_new = physics.smooth_clamp(state.S2_FB + dS2_FB * dt, 0.0, params.S2_FB_max)
         S2_new = S2_T_new + S2_FA_new + S2_FB_new
-    
+
     # Soil-column ("land") runoff for this HRU.
     q_total = qsx + qif + qb
 
@@ -276,9 +263,15 @@ def fuse_step(
     # HRU runoff is the area-weighted blend of the land and glacier components.
     if config.enable_glacier and glacier_frac is not None:
         q_glac, S_glac_new, ICE_new, _ice_melt = physics.compute_glacier(
-            forcing.temp, SWE_new, rain, melt,
-            state.S_glac, state.ICE,
-            params.DDF_ice, params.T_ice, params.K_glac,
+            forcing.temp,
+            SWE_new,
+            rain,
+            melt,
+            state.S_glac,
+            state.ICE,
+            params.DDF_ice,
+            params.T_ice,
+            params.K_glac,
             dt=dt,
         )
         # Hard clip: glacier_frac is a static attribute, not a differentiated
@@ -323,13 +316,14 @@ def fuse_step(
         q_total=q_total,
         Ac=Ac,
     )
-    
+
     return new_state, flux
 
 
 # =============================================================================
 # FULL SIMULATION
 # =============================================================================
+
 
 def fuse_simulate(
     forcing_series: Tuple[Array, Array, Array],
@@ -342,10 +336,10 @@ def fuse_simulate(
     remat_scan: bool = True,
 ) -> Tuple[Array, Array]:
     """Run FUSE simulation over a time series.
-    
+
     Uses JAX's scan for efficient sequential computation with
     automatic differentiation support.
-    
+
     Args:
         forcing_series: Tuple of (precip, pet, temp) arrays, each [n_timesteps, n_hrus]
         initial_state: Initial model state
@@ -353,7 +347,7 @@ def fuse_simulate(
         config: Model configuration
         dt: Timestep in days
         start_doy: Starting day of year
-        
+
     Returns:
         Tuple of (runoff, states) where:
             runoff: [n_timesteps, n_hrus] total runoff in mm/day
@@ -367,9 +361,7 @@ def fuse_simulate(
     # and lax.scan raises a carry-type mismatch.
     hru_shape = precip.shape[1:]
     if hru_shape:
-        initial_state = jax.tree.map(
-            lambda x: jnp.broadcast_to(x, hru_shape), initial_state
-        )
+        initial_state = jax.tree.map(lambda x: jnp.broadcast_to(x, hru_shape), initial_state)
         if glacier_frac is not None:
             glacier_frac = jnp.broadcast_to(jnp.asarray(glacier_frac), hru_shape)
 
@@ -378,9 +370,7 @@ def fuse_simulate(
         p, pe, t = inputs
 
         forcing = Forcing(precip=p, pet=pe, temp=t)
-        new_state, flux = fuse_step(
-            state, forcing, params, config, dt, doy, glacier_frac
-        )
+        new_state, flux = fuse_step(state, forcing, params, config, dt, doy, glacier_frac)
 
         # Advance day of year with proper cycling (1-365 or 1-366 for leap years)
         # Wrap at 366 to handle both cases; seasonal calculations use /365.0
@@ -402,7 +392,7 @@ def fuse_simulate(
         (initial_state, start_doy),
         (precip, pet, temp),
     )
-    
+
     return runoff, final_state
 
 
@@ -410,41 +400,43 @@ def fuse_simulate(
 # MODEL CLASS
 # =============================================================================
 
+
 class FUSEModel(eqx.Module):
     """FUSE model wrapper for convenient simulation and calibration.
-    
+
     This class wraps the pure functions above into an object-oriented
     interface while maintaining full JAX compatibility.
-    
+
     Attributes:
         config: Model configuration
         n_hrus: Number of HRUs
     """
+
     config: ModelConfig = eqx.field(static=True)
     n_hrus: int = eqx.field(static=True)
-    
+
     def __init__(
         self,
         config: ModelConfig = None,
         n_hrus: int = 1,
     ):
         """Initialize FUSE model.
-        
+
         Args:
             config: Model configuration (defaults to PRMS)
             n_hrus: Number of HRUs
         """
         self.config = config if config is not None else PRMS_CONFIG
         self.n_hrus = n_hrus
-    
+
     def default_state(self) -> State:
         """Get default initial state."""
         return State.default(self.n_hrus)
-    
+
     def default_params(self) -> Parameters:
         """Get default parameters."""
         return Parameters.default(self.n_hrus)
-    
+
     def step(
         self,
         state: State,
@@ -455,9 +447,7 @@ class FUSEModel(eqx.Module):
         glacier_frac: Optional[Array] = None,
     ) -> Tuple[State, Flux]:
         """Run single timestep."""
-        return fuse_step(
-            state, forcing, params, self.config, dt, day_of_year, glacier_frac
-        )
+        return fuse_step(state, forcing, params, self.config, dt, day_of_year, glacier_frac)
 
     def simulate(
         self,
@@ -485,7 +475,12 @@ class FUSEModel(eqx.Module):
             initial_state = self.default_state()
 
         return fuse_simulate(
-            forcing_series, initial_state, params, self.config, dt, start_doy,
+            forcing_series,
+            initial_state,
+            params,
+            self.config,
+            dt,
+            start_doy,
             glacier_frac,
         )
 
@@ -495,14 +490,15 @@ def create_fuse_model(
     n_hrus: int = 1,
 ) -> FUSEModel:
     """Create a FUSE model from configuration name.
-    
+
     Args:
         config_name: One of 'prms', 'sacramento', 'topmodel', 'vic'
         n_hrus: Number of HRUs
-        
+
     Returns:
         Configured FUSEModel instance
     """
     from .config import get_config
+
     config = get_config(config_name)
     return FUSEModel(config=config, n_hrus=n_hrus)

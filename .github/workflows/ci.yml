@@ -9,10 +9,7 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    # Advisory for now: the existing tree has pre-existing ruff/black/mypy
-    # findings. Surfaces issues in PRs without blocking; make blocking once
-    # the codebase is cleaned up.
-    continue-on-error: true
+    # Blocking: the tree is ruff- and black-clean. Keep it that way.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -32,6 +29,25 @@ jobs:
 
       - name: Black (check)
         run: black --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    # Advisory for now: mypy still has a large pre-existing backlog. Surfaces
+    # type findings in PRs without blocking; make blocking once cleaned up.
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
 
       - name: Mypy
         run: mypy src

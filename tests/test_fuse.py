@@ -255,8 +255,12 @@ class TestFUSEModel:
     def test_different_configs(self):
         """Test model with different configurations."""
         from jfuse.fuse import (
-            FUSEModel, Parameters,
-            PRMS_CONFIG, SACRAMENTO_CONFIG, TOPMODEL_CONFIG, VIC_CONFIG
+            FUSEModel,
+            Parameters,
+            PRMS_CONFIG,
+            SACRAMENTO_CONFIG,
+            TOPMODEL_CONFIG,
+            VIC_CONFIG,
         )
 
         n_days = 10
@@ -306,10 +310,9 @@ class TestRouting:
 
         network = RiverNetwork()
         network.add_reach(Reach(id=0, length=1000, slope=0.001))
-        network.add_reach(Reach(
-            id=1, length=2000, slope=0.0005,
-            upstream_ids=[0], downstream_id=-1
-        ))
+        network.add_reach(
+            Reach(id=1, length=2000, slope=0.0005, upstream_ids=[0], downstream_id=-1)
+        )
         network.build_topology()
 
         assert network.n_reaches == 2
@@ -325,9 +328,7 @@ class TestRouting:
         lengths = [1000.0, 2000.0, 1500.0]
         slopes = [0.01, 0.005, 0.002]
 
-        network = create_network_from_topology(
-            reach_ids, downstream_ids, lengths, slopes
-        )
+        network = create_network_from_topology(reach_ids, downstream_ids, lengths, slopes)
         arrays = network.to_arrays()
 
         assert arrays.n_reaches == 3
@@ -348,8 +349,7 @@ class TestRouting:
         dt = 3600.0
 
         params = compute_muskingum_params(
-            Q, length, slope, manning_n,
-            width_coef, width_exp, depth_coef, depth_exp, dt
+            Q, length, slope, manning_n, width_coef, width_exp, depth_coef, depth_exp, dt
         )
 
         # Check coefficients sum to 1
@@ -421,11 +421,7 @@ class TestCalibration:
         """Test optimizer creation."""
         from jfuse.optim.calibration import create_optimizer, CalibrationConfig
 
-        config = CalibrationConfig(
-            max_iterations=100,
-            learning_rate=0.01,
-            optimizer="adam"
-        )
+        config = CalibrationConfig(max_iterations=100, learning_rate=0.01, optimizer="adam")
         optimizer = create_optimizer(config)
 
         # Should create without error

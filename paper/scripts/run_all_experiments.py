@@ -51,12 +51,13 @@ def run_script(script_name: str, args: list = None, env: dict = None):
 
 def main():
     parser = argparse.ArgumentParser(description="Run jFUSE paper experiments")
-    parser.add_argument("--exp", type=int, choices=[1, 2, 3, 4],
-                        help="Run specific experiment (1-4)")
-    parser.add_argument("--gpu", action="store_true",
-                        help="Enable GPU acceleration")
-    parser.add_argument("--quick", action="store_true",
-                        help="Run quick versions of experiments for testing")
+    parser.add_argument(
+        "--exp", type=int, choices=[1, 2, 3, 4], help="Run specific experiment (1-4)"
+    )
+    parser.add_argument("--gpu", action="store_true", help="Enable GPU acceleration")
+    parser.add_argument(
+        "--quick", action="store_true", help="Run quick versions of experiments for testing"
+    )
     args = parser.parse_args()
 
     # Set up environment
@@ -104,14 +105,14 @@ def main():
         run_script("plot_results.py", env=env)
 
     # Summary
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     if success:
         print("All experiments completed successfully!")
         print(f"Results saved to: {RESULTS_DIR}")
         print(f"Figures saved to: {FIGURES_DIR}")
     else:
         print("Some experiments failed. Check output above for details.")
-    print("="*60)
+    print("=" * 60)
 
     return 0 if success else 1
 

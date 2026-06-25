@@ -12,6 +12,7 @@ glacier module and the lake/reservoir routing node consume:
 Both degrade gracefully (return ``None`` / the unchanged network) when the
 source data is absent, so a domain without glaciers or lakes is unaffected.
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,15 +52,21 @@ def load_glacier_fraction(
                 if float(frac.max()) > 0.0:
                     log.info(
                         "Loaded glacier fraction for %d GRUs (mean=%.3f, max=%.3f) from %s",
-                        frac.size, float(frac.mean()), float(frac.max()), csv,
+                        frac.size,
+                        float(frac.mean()),
+                        float(frac.max()),
+                        csv,
                     )
                 return frac
         except Exception:  # noqa: BLE001 — fall through to the shapefile source
             log.debug("Could not read glacier_fraction from %s", csv, exc_info=True)
 
     shp = (
-        project_dir / "shapefiles" / "catchment_intersection"
-        / "with_domain_type" / "catchment_with_domain_type.shp"
+        project_dir
+        / "shapefiles"
+        / "catchment_intersection"
+        / "with_domain_type"
+        / "catchment_with_domain_type.shp"
     )
     if shp.exists():
         try:
@@ -71,7 +78,9 @@ def load_glacier_fraction(
                 frac = np.clip(gdf[cols].sum(axis=1).to_numpy(dtype="float32"), 0.0, 1.0)
                 log.info(
                     "Loaded glacier fraction for %d GRUs (mean=%.3f) from %s",
-                    frac.size, float(frac.mean()), shp,
+                    frac.size,
+                    float(frac.mean()),
+                    shp,
                 )
                 return frac
         except Exception:  # noqa: BLE001
@@ -105,6 +114,7 @@ def glacier_fraction_by_gru_id(
     if cache_csv.exists():
         try:
             import pandas as pd
+
             df = pd.read_csv(cache_csv)
             return {int(r.gru_id): float(r.glacier_fraction) for r in df.itertuples()}
         except Exception:  # noqa: BLE001
@@ -113,11 +123,20 @@ def glacier_fraction_by_gru_id(
     rgi_dir = project_dir / "data" / "attributes" / "glaciers" / "cache"
     rgi_shps = list(rgi_dir.glob("RGI*G-0*_*.shp")) if rgi_dir.exists() else []
     rb_dir = project_dir / "shapefiles" / "river_basins"
-    rb_shps = (list(rb_dir.glob("*riverBasins_semidistributed.shp"))
-               or list(rb_dir.glob("*riverBasins*.shp"))) if rb_dir.exists() else []
+    rb_shps = (
+        (
+            list(rb_dir.glob("*riverBasins_semidistributed.shp"))
+            or list(rb_dir.glob("*riverBasins*.shp"))
+        )
+        if rb_dir.exists()
+        else []
+    )
     if not rgi_shps or not rb_shps:
-        log.debug("RGI (%d) or river-basins (%d) shapefiles missing for overlay.",
-                  len(rgi_shps), len(rb_shps))
+        log.debug(
+            "RGI (%d) or river-basins (%d) shapefiles missing for overlay.",
+            len(rgi_shps),
+            len(rb_shps),
+        )
         return None
 
     try:
@@ -137,11 +156,17 @@ def glacier_fraction_by_gru_id(
         glac = glac.to_crs(proj)
         basins["_gru_area"] = basins.geometry.area
 
-        log.info("Computing glacier fraction: overlaying %d glaciers ∩ %d GRUs...",
-                 len(glac), len(basins))
+        log.info(
+            "Computing glacier fraction: overlaying %d glaciers ∩ %d GRUs...",
+            len(glac),
+            len(basins),
+        )
         inter = gpd.overlay(
             basins[["GRU_ID", "_gru_area", "geometry"]],
-            glac[["geometry"]], how="intersection", keep_geom_type=True)
+            glac[["geometry"]],
+            how="intersection",
+            keep_geom_type=True,
+        )
         inter["_ice_area"] = inter.geometry.area
         ice_by_gru = inter.groupby("GRU_ID")["_ice_area"].sum()
 
@@ -154,10 +179,15 @@ def glacier_fraction_by_gru_id(
 
         try:
             cache_csv.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame({"gru_id": list(out.keys()),
-                          "glacier_fraction": list(out.values())}).to_csv(cache_csv, index=False)
-            log.info("Cached glacier fraction for %d GRUs (mean=%.4f) -> %s",
-                     len(out), float(pd.Series(list(out.values())).mean()), cache_csv)
+            pd.DataFrame(
+                {"gru_id": list(out.keys()), "glacier_fraction": list(out.values())}
+            ).to_csv(cache_csv, index=False)
+            log.info(
+                "Cached glacier fraction for %d GRUs (mean=%.4f) -> %s",
+                len(out),
+                float(pd.Series(list(out.values())).mean()),
+                cache_csv,
+            )
         except Exception:  # noqa: BLE001
             log.debug("Could not write glacier-fraction cache", exc_info=True)
         return out
@@ -200,7 +230,9 @@ def classify_lakes_onto_network(
     log = logger or logging.getLogger(__name__)
     project_dir = Path(project_dir)
 
-    lakes_gpkg = project_dir / "data" / "attributes" / "lakes" / f"domain_{domain_name}_hydrolakes.gpkg"
+    lakes_gpkg = (
+        project_dir / "data" / "attributes" / "lakes" / f"domain_{domain_name}_hydrolakes.gpkg"
+    )
     net_shp_dir = project_dir / "shapefiles" / "river_network"
     if not lakes_gpkg.exists():
         log.debug("No HydroLAKES file at %s; lakes disabled.", lakes_gpkg)
@@ -228,14 +260,36 @@ def classify_lakes_onto_network(
         id_to_idx = {int(rid): i for i, rid in enumerate(reach_ids)}
 
         is_lake = np.zeros(n, dtype=bool)
-        s_max = np.array(network_arrays.lake_s_max) if network_arrays.lake_s_max is not None else np.zeros(n, np.float32)
-        q_ref = np.array(network_arrays.lake_q_ref) if network_arrays.lake_q_ref is not None else np.zeros(n, np.float32)
-        q_min = np.array(network_arrays.lake_q_min) if network_arrays.lake_q_min is not None else np.zeros(n, np.float32)
-        exp = np.array(network_arrays.lake_exp) if network_arrays.lake_exp is not None else np.full(n, 2.0, np.float32)
-        spill = np.array(network_arrays.lake_spill_coef) if network_arrays.lake_spill_coef is not None else np.full(n, 1.0, np.float32)
+        s_max = (
+            np.array(network_arrays.lake_s_max)
+            if network_arrays.lake_s_max is not None
+            else np.zeros(n, np.float32)
+        )
+        q_ref = (
+            np.array(network_arrays.lake_q_ref)
+            if network_arrays.lake_q_ref is not None
+            else np.zeros(n, np.float32)
+        )
+        q_min = (
+            np.array(network_arrays.lake_q_min)
+            if network_arrays.lake_q_min is not None
+            else np.zeros(n, np.float32)
+        )
+        exp = (
+            np.array(network_arrays.lake_exp)
+            if network_arrays.lake_exp is not None
+            else np.full(n, 2.0, np.float32)
+        )
+        spill = (
+            np.array(network_arrays.lake_spill_coef)
+            if network_arrays.lake_spill_coef is not None
+            else np.full(n, 1.0, np.float32)
+        )
 
         # Spatial join: lakes -> intersecting reaches.
-        joined = gpd.sjoin(reaches[[segid_field, "geometry"]], lakes, predicate="intersects", how="inner")
+        joined = gpd.sjoin(
+            reaches[[segid_field, "geometry"]], lakes, predicate="intersects", how="inner"
+        )
         n_set = 0
         # Keep the largest lake per reach.
         area_col = "Lake_area" if "Lake_area" in joined.columns else None
@@ -249,8 +303,8 @@ def classify_lakes_onto_network(
             seen.add(rid)
             i = id_to_idx[rid]
             is_lake[i] = True
-            vol = float(row.get("Vol_total", 0.0) or 0.0) * 1.0e6   # mcm -> m³
-            dis = float(row.get("Dis_avg", 0.0) or 0.0)             # m³/s
+            vol = float(row.get("Vol_total", 0.0) or 0.0) * 1.0e6  # mcm -> m³
+            dis = float(row.get("Dis_avg", 0.0) or 0.0)  # m³/s
             ltype = int(row.get("Lake_type", 1) or 1)
             s_max[i] = max(vol, 1.0)
             q_ref[i] = max(dis, 0.0)
@@ -262,7 +316,9 @@ def classify_lakes_onto_network(
             log.info("HydroLAKES present but no reaches intersect lakes; routing unchanged.")
             return network_arrays
 
-        log.info("Classified %d lake/reservoir reaches from HydroLAKES (%s).", n_set, lakes_gpkg.name)
+        log.info(
+            "Classified %d lake/reservoir reaches from HydroLAKES (%s).", n_set, lakes_gpkg.name
+        )
         return network_arrays._replace(
             is_lake=jnp.asarray(is_lake),
             lake_s_max=jnp.asarray(s_max, dtype=jnp.float32),

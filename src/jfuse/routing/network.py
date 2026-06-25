@@ -21,7 +21,7 @@ import numpy as np
 @dataclass
 class Reach:
     """A single river reach with routing parameters.
-    
+
     Attributes:
         id: Unique identifier
         length: Reach length in meters
@@ -36,6 +36,7 @@ class Reach:
         hru_id: Associated HRU ID for lateral inflow
         area: Contributing catchment area (m²)
     """
+
     id: int
     length: float
     slope: float
@@ -53,10 +54,10 @@ class Reach:
     # (level-pool / regulated outflow) instead of Muskingum-Cunge channel
     # routing. Defaults describe "no lake" so existing reaches are unaffected.
     is_lake: bool = False
-    lake_s_max: float = 0.0       # Active storage capacity (m³)
-    lake_q_ref: float = 0.0       # Reference outflow at full storage (m³/s)
-    lake_q_min: float = 0.0       # Minimum (e.g. environmental) release (m³/s)
-    lake_exp: float = 2.0         # Storage-discharge rating exponent
+    lake_s_max: float = 0.0  # Active storage capacity (m³)
+    lake_q_ref: float = 0.0  # Reference outflow at full storage (m³/s)
+    lake_q_min: float = 0.0  # Minimum (e.g. environmental) release (m³/s)
+    lake_exp: float = 2.0  # Storage-discharge rating exponent
     lake_spill_coef: float = 1.0  # Spillway release rate above capacity (1/s)
 
     def __post_init__(self):
@@ -66,10 +67,10 @@ class Reach:
 
 class NetworkArrays(NamedTuple):
     """JAX-compatible array representation of the network.
-    
+
     This structure enables efficient vectorized operations in JAX
     while maintaining the DAG topology.
-    
+
     Attributes:
         n_reaches: Number of reaches
         reach_ids: Array of reach IDs in topological order
@@ -88,6 +89,7 @@ class NetworkArrays(NamedTuple):
         is_headwater: Boolean mask for headwater reaches [n_reaches]
         is_outlet: Boolean mask for outlet reaches [n_reaches]
     """
+
     n_reaches: int
     reach_ids: Array
     lengths: Array
@@ -121,101 +123,101 @@ class NetworkArrays(NamedTuple):
 
 class RiverNetwork:
     """River network topology with topological ordering.
-    
+
     Manages the DAG structure of a river network and provides efficient
     traversal orders for routing computations.
-    
+
     Example:
         >>> network = RiverNetwork()
         >>> network.add_reach(Reach(id=0, length=1000, slope=0.001))
-        >>> network.add_reach(Reach(id=1, length=2000, slope=0.0005, 
+        >>> network.add_reach(Reach(id=1, length=2000, slope=0.0005,
         ...                         upstream_ids=[0], downstream_id=-1))
         >>> network.build_topology()
         >>> order = network.topological_order  # [0, 1]
     """
-    
+
     def __init__(self):
         self.reaches: Dict[int, Reach] = {}
         self._topo_order: List[int] = []
         self._is_built: bool = False
-    
+
     def add_reach(self, reach: Reach) -> None:
         """Add a reach to the network."""
         self.reaches[reach.id] = reach
         self._is_built = False
-    
+
     def add_reaches(self, reaches: Sequence[Reach]) -> None:
         """Add multiple reaches to the network."""
         for reach in reaches:
             self.add_reach(reach)
-    
+
     @property
     def n_reaches(self) -> int:
         """Number of reaches in the network."""
         return len(self.reaches)
-    
+
     @property
     def topological_order(self) -> List[int]:
         """Get reach IDs in topological order (upstream to downstream)."""
         if not self._is_built:
             raise RuntimeError("Network topology not built. Call build_topology() first.")
         return self._topo_order
-    
+
     def build_topology(self) -> None:
         """Build the topological ordering of reaches.
-        
+
         Uses Kahn's algorithm for topological sorting.
         """
         if self.n_reaches == 0:
             self._topo_order = []
             self._is_built = True
             return
-        
+
         # Build adjacency and compute in-degrees
         in_degree = {rid: 0 for rid in self.reaches}
-        
+
         for rid, reach in self.reaches.items():
             in_degree[rid] = len(reach.upstream_ids)
-        
+
         # Initialize queue with headwaters (in-degree 0)
         queue = [rid for rid, deg in in_degree.items() if deg == 0]
         result = []
-        
+
         while queue:
             # Pop from queue
             rid = queue.pop(0)
             result.append(rid)
-            
+
             # Find downstream reaches and decrement their in-degree
             reach = self.reaches[rid]
             if reach.downstream_id >= 0 and reach.downstream_id in self.reaches:
                 in_degree[reach.downstream_id] -= 1
                 if in_degree[reach.downstream_id] == 0:
                     queue.append(reach.downstream_id)
-        
+
         # Check for cycles
         if len(result) != self.n_reaches:
             # Fall back to ID-based ordering
             result = sorted(self.reaches.keys())
-        
+
         self._topo_order = result
         self._is_built = True
-    
+
     def to_arrays(self) -> NetworkArrays:
         """Convert network to JAX-compatible arrays.
-        
+
         Returns:
             NetworkArrays namedtuple with all network data as arrays
         """
         if not self._is_built:
             self.build_topology()
-        
+
         n = self.n_reaches
         order = self._topo_order
-        
+
         # Map reach IDs to indices
         id_to_idx = {rid: i for i, rid in enumerate(order)}
-        
+
         # Initialize arrays
         reach_ids = np.array(order, dtype=np.int32)
         lengths = np.zeros(n, dtype=np.float32)
@@ -256,16 +258,16 @@ class RiverNetwork:
             lake_q_min[i] = reach.lake_q_min
             lake_exp[i] = reach.lake_exp
             lake_spill_coef[i] = reach.lake_spill_coef
-            
+
             # Upstream mask
             for up_id in reach.upstream_ids:
                 if up_id in id_to_idx:
                     upstream_mask[i, id_to_idx[up_id]] = True
-            
+
             # Downstream index
             if reach.downstream_id >= 0 and reach.downstream_id in id_to_idx:
                 downstream_idx[i] = id_to_idx[reach.downstream_id]
-            
+
             # Headwater/outlet flags
             is_headwater[i] = len(reach.upstream_ids) == 0
             is_outlet[i] = reach.downstream_id < 0
@@ -277,7 +279,7 @@ class RiverNetwork:
             ups = np.where(upstream_mask[i])[0]
             reach_level[i] = (int(reach_level[ups].max()) + 1) if ups.size else 0
         max_level = int(reach_level.max()) if n else 0
-        
+
         return NetworkArrays(
             n_reaches=n,
             reach_ids=jnp.array(reach_ids),
@@ -303,16 +305,14 @@ class RiverNetwork:
             lake_exp=jnp.array(lake_exp),
             lake_spill_coef=jnp.array(lake_spill_coef),
         )
-    
+
     def get_outlet_ids(self) -> List[int]:
         """Get IDs of outlet reaches."""
-        return [rid for rid, reach in self.reaches.items() 
-                if reach.downstream_id < 0]
-    
+        return [rid for rid, reach in self.reaches.items() if reach.downstream_id < 0]
+
     def get_headwater_ids(self) -> List[int]:
         """Get IDs of headwater reaches."""
-        return [rid for rid, reach in self.reaches.items() 
-                if len(reach.upstream_ids) == 0]
+        return [rid for rid, reach in self.reaches.items() if len(reach.upstream_ids) == 0]
 
 
 def create_network_from_topology(
@@ -325,10 +325,10 @@ def create_network_from_topology(
     hru_ids: Optional[Sequence[int]] = None,
 ) -> RiverNetwork:
     """Create a river network from topology arrays.
-    
+
     This is a convenience function for creating networks from typical
     GIS-derived topology data.
-    
+
     Args:
         reach_ids: Unique reach identifiers
         downstream_ids: Downstream reach ID for each reach (-1 for outlets)
@@ -337,12 +337,12 @@ def create_network_from_topology(
         manning_n: Manning's n values (default 0.035)
         areas: Contributing areas in m² (default 0)
         hru_ids: Associated HRU IDs (default same as reach_ids)
-        
+
     Returns:
         Configured RiverNetwork
     """
     n = len(reach_ids)
-    
+
     # Defaults. mizuRoute topologies carry a separate HRU dimension
     # (n_HRU != n_seg), so per-HRU arrays passed here (areas, hru_ids) may not be
     # per-reach — fall back rather than index out of range.
@@ -352,17 +352,17 @@ def create_network_from_topology(
         areas = [0.0] * n
     if hru_ids is None or len(hru_ids) != n:
         hru_ids = list(reach_ids)
-    
+
     # Build upstream relationships
     upstream_map: Dict[int, List[int]] = {rid: [] for rid in reach_ids}
     for i, rid in enumerate(reach_ids):
         ds_id = downstream_ids[i]
         if ds_id >= 0 and ds_id in upstream_map:
             upstream_map[ds_id].append(rid)
-    
+
     # Create network
     network = RiverNetwork()
-    
+
     for i, rid in enumerate(reach_ids):
         reach = Reach(
             id=rid,
@@ -375,6 +375,6 @@ def create_network_from_topology(
             area=areas[i],
         )
         network.add_reach(reach)
-    
+
     network.build_topology()
     return network

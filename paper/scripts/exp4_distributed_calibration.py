@@ -55,11 +55,13 @@ def generate_distributed_forcing(n_hrus: int, n_timesteps: int = 730):
 
         temp = 10.0 + temp_offset + 15.0 * np.sin(2 * np.pi * (t - 90) / 365)
 
-        forcings.append(FUSEForcing(
-            precip=jnp.array(precip, dtype=jnp.float32),
-            pet=jnp.array(pet, dtype=jnp.float32),
-            temp=jnp.array(temp, dtype=jnp.float32),
-        ))
+        forcings.append(
+            FUSEForcing(
+                precip=jnp.array(precip, dtype=jnp.float32),
+                pet=jnp.array(pet, dtype=jnp.float32),
+                temp=jnp.array(temp, dtype=jnp.float32),
+            )
+        )
 
     return forcings
 
@@ -84,8 +86,9 @@ def runoff_to_discharge(runoff_mm: jnp.ndarray, area_km2: float) -> jnp.ndarray:
     return runoff_mm * area_km2 * 1000.0 / 86400.0
 
 
-def muskingum_cunge_route(inflows: jnp.ndarray, downstream: list,
-                          manning_n: jnp.ndarray, dt: float = 86400.0):
+def muskingum_cunge_route(
+    inflows: jnp.ndarray, downstream: list, manning_n: jnp.ndarray, dt: float = 86400.0
+):
     """Simple Muskingum-Cunge routing through network."""
     n_reaches = len(downstream)
     n_timesteps = inflows.shape[1]
@@ -102,32 +105,31 @@ def muskingum_cunge_route(inflows: jnp.ndarray, downstream: list,
             upstream_inflow = 0.0
             for j in range(n_reaches):
                 if downstream[j] == i:
-                    upstream_inflow += outflows[j, t-1]
+                    upstream_inflow += outflows[j, t - 1]
 
             # Simple routing with Manning's n effect
             K = 0.5 * manning_n[i]  # Storage constant proportional to n
             X = 0.2  # Weighting factor
 
-            C1 = (dt - 2*K*X) / (2*K*(1-X) + dt)
-            C2 = (dt + 2*K*X) / (2*K*(1-X) + dt)
-            C3 = (2*K*(1-X) - dt) / (2*K*(1-X) + dt)
+            C1 = (dt - 2 * K * X) / (2 * K * (1 - X) + dt)
+            C2 = (dt + 2 * K * X) / (2 * K * (1 - X) + dt)
+            C3 = (2 * K * (1 - X) - dt) / (2 * K * (1 - X) + dt)
 
             total_inflow = lateral + upstream_inflow
 
             outflows = outflows.at[i, t].set(
-                C1 * total_inflow + C2 * inflows[i, t-1] + C3 * outflows[i, t-1]
+                C1 * total_inflow + C2 * inflows[i, t - 1] + C3 * outflows[i, t - 1]
             )
 
     return outflows
 
 
-def run_distributed_simulation(forcings: list, params_list: list,
-                               areas: np.ndarray, downstream: list,
-                               manning_n: jnp.ndarray):
+def run_distributed_simulation(
+    forcings: list, params_list: list, areas: np.ndarray, downstream: list, manning_n: jnp.ndarray
+):
     """Run distributed FUSE + routing simulation."""
     model = create_fuse_model(PRMS_CONFIG)
     n_hrus = len(forcings)
-    n_timesteps = len(forcings[0].precip)
 
     # Run FUSE for each HRU
     runoffs = []
@@ -141,9 +143,7 @@ def run_distributed_simulation(forcings: list, params_list: list,
     # Convert to discharge
     discharges = jnp.zeros_like(runoffs)
     for i in range(n_hrus):
-        discharges = discharges.at[i].set(
-            runoff_to_discharge(runoffs[i], areas[i])
-        )
+        discharges = discharges.at[i].set(runoff_to_discharge(runoffs[i], areas[i]))
 
     # Route through network
     routed = muskingum_cunge_route(discharges, downstream, manning_n)
@@ -165,44 +165,44 @@ def generate_observations(forcings: list, areas: np.ndarray, downstream: list):
     for i in range(n_hrus):
         base = get_default_params()
         # Add spatial variation to key parameters
-        true_params.append(FUSEParams(
-            S1_max=base.S1_max * (0.8 + 0.4 * np.random.random()),
-            S2_max=base.S2_max * (0.8 + 0.4 * np.random.random()),
-            ku=base.ku * (0.9 + 0.2 * np.random.random()),
-            ks=base.ks * (0.8 + 0.4 * np.random.random()),
-            ki=base.ki,
-            kq=base.kq,
-            alpha=base.alpha,
-            beta=base.beta,
-            chi=base.chi,
-            phi=base.phi,
-            psi=base.psi,
-            f_tens=base.f_tens,
-            f_1=base.f_1,
-            f_2=base.f_2,
-            lambda_baseflow=base.lambda_baseflow,
-            c_baseflow=base.c_baseflow,
-            n_baseflow=base.n_baseflow,
-            m_topmodel=base.m_topmodel,
-            f_root=base.f_root,
-            r_exp=base.r_exp,
-            melt_factor=base.melt_factor,
-            melt_temp=base.melt_temp,
-            rain_temp=base.rain_temp,
-            snow_temp=base.snow_temp,
-            melt_factor_amp=base.melt_factor_amp,
-            gamma_shape=base.gamma_shape,
-            gamma_scale=base.gamma_scale,
-            rainfall_mult=base.rainfall_mult,
-            rainfall_add=base.rainfall_add,
-            manning_n=base.manning_n,
-        ))
+        true_params.append(
+            FUSEParams(
+                S1_max=base.S1_max * (0.8 + 0.4 * np.random.random()),
+                S2_max=base.S2_max * (0.8 + 0.4 * np.random.random()),
+                ku=base.ku * (0.9 + 0.2 * np.random.random()),
+                ks=base.ks * (0.8 + 0.4 * np.random.random()),
+                ki=base.ki,
+                kq=base.kq,
+                alpha=base.alpha,
+                beta=base.beta,
+                chi=base.chi,
+                phi=base.phi,
+                psi=base.psi,
+                f_tens=base.f_tens,
+                f_1=base.f_1,
+                f_2=base.f_2,
+                lambda_baseflow=base.lambda_baseflow,
+                c_baseflow=base.c_baseflow,
+                n_baseflow=base.n_baseflow,
+                m_topmodel=base.m_topmodel,
+                f_root=base.f_root,
+                r_exp=base.r_exp,
+                melt_factor=base.melt_factor,
+                melt_temp=base.melt_temp,
+                rain_temp=base.rain_temp,
+                snow_temp=base.snow_temp,
+                melt_factor_amp=base.melt_factor_amp,
+                gamma_shape=base.gamma_shape,
+                gamma_scale=base.gamma_scale,
+                rainfall_mult=base.rainfall_mult,
+                rainfall_add=base.rainfall_add,
+                manning_n=base.manning_n,
+            )
+        )
 
     true_manning = jnp.array([0.03 + 0.02 * np.random.random() for _ in range(n_hrus)])
 
-    outlet_q, _ = run_distributed_simulation(
-        forcings, true_params, areas, downstream, true_manning
-    )
+    outlet_q, _ = run_distributed_simulation(forcings, true_params, areas, downstream, true_manning)
 
     # Add noise
     np.random.seed(654)
@@ -212,14 +212,17 @@ def generate_observations(forcings: list, areas: np.ndarray, downstream: list):
     return jnp.array(np.maximum(0, obs), dtype=jnp.float32), true_params, true_manning
 
 
-def calibrate_distributed(forcings: list, observations: jnp.ndarray,
-                          areas: np.ndarray, downstream: list,
-                          spatial_params: list,
-                          max_epochs: int = 200,
-                          lr: float = 0.01):
+def calibrate_distributed(
+    forcings: list,
+    observations: jnp.ndarray,
+    areas: np.ndarray,
+    downstream: list,
+    spatial_params: list,
+    max_epochs: int = 200,
+    lr: float = 0.01,
+):
     """Calibrate distributed model."""
     n_hrus = len(forcings)
-    model = create_fuse_model(PRMS_CONFIG)
 
     # Initialize parameters
     base_params = get_default_params()
@@ -227,11 +230,35 @@ def calibrate_distributed(forcings: list, observations: jnp.ndarray,
 
     # Determine which parameters are spatially varying
     param_names = [
-        "S1_max", "S2_max", "ku", "ks", "ki", "kq", "alpha", "beta", "chi",
-        "phi", "psi", "f_tens", "f_1", "f_2", "lambda_baseflow", "c_baseflow",
-        "n_baseflow", "m_topmodel", "f_root", "r_exp", "melt_factor",
-        "melt_temp", "rain_temp", "snow_temp", "melt_factor_amp",
-        "gamma_shape", "gamma_scale", "rainfall_mult", "rainfall_add",
+        "S1_max",
+        "S2_max",
+        "ku",
+        "ks",
+        "ki",
+        "kq",
+        "alpha",
+        "beta",
+        "chi",
+        "phi",
+        "psi",
+        "f_tens",
+        "f_1",
+        "f_2",
+        "lambda_baseflow",
+        "c_baseflow",
+        "n_baseflow",
+        "m_topmodel",
+        "f_root",
+        "r_exp",
+        "melt_factor",
+        "melt_temp",
+        "rain_temp",
+        "snow_temp",
+        "melt_factor_amp",
+        "gamma_shape",
+        "gamma_scale",
+        "rainfall_mult",
+        "rainfall_add",
         "manning_n",
     ]
 
@@ -248,18 +275,14 @@ def calibrate_distributed(forcings: list, observations: jnp.ndarray,
     manning_params = jnp.ones(n_hrus) * 0.035
 
     # Combine into single array for optimization
-    all_params = jnp.concatenate([
-        global_params,
-        spatial_params_arr.flatten(),
-        manning_params
-    ])
+    all_params = jnp.concatenate([global_params, spatial_params_arr.flatten(), manning_params])
 
     n_params = len(all_params)
 
     def loss_fn(all_params):
         # Unpack parameters
         global_p = all_params[:n_global]
-        spatial_p = all_params[n_global:n_global + n_spatial * n_hrus].reshape(n_hrus, n_spatial)
+        spatial_p = all_params[n_global : n_global + n_spatial * n_hrus].reshape(n_hrus, n_spatial)
         manning = all_params[-n_hrus:]
 
         # Reconstruct parameter objects
@@ -271,9 +294,7 @@ def calibrate_distributed(forcings: list, observations: jnp.ndarray,
             params_list.append(FUSEParams.from_array(full_array))
 
         # Run simulation
-        outlet_q, _ = run_distributed_simulation(
-            forcings, params_list, areas, downstream, manning
-        )
+        outlet_q, _ = run_distributed_simulation(forcings, params_list, areas, downstream, manning)
 
         # NSE loss
         warmup = 60
@@ -302,11 +323,13 @@ def calibrate_distributed(forcings: list, observations: jnp.ndarray,
         all_params = jnp.clip(all_params, 0.001, 1000.0)
 
         nse = 1.0 - float(loss)
-        history.append({
-            "epoch": epoch,
-            "nse": nse,
-            "n_params": n_params,
-        })
+        history.append(
+            {
+                "epoch": epoch,
+                "nse": nse,
+                "n_params": n_params,
+            }
+        )
 
         if epoch % 50 == 0:
             print(f"    Epoch {epoch}: NSE = {nse:.4f}")
@@ -320,7 +343,7 @@ def calibrate_distributed(forcings: list, observations: jnp.ndarray,
 def run_experiment(quick: bool = False):
     """Run distributed calibration experiment."""
     print("Experiment 4: Distributed Calibration")
-    print("="*50)
+    print("=" * 50)
 
     n_hrus = 10 if quick else 29
     n_timesteps = 365 if quick else 730
@@ -336,17 +359,14 @@ def run_experiment(quick: bool = False):
     downstream = generate_network_topology(n_hrus)
 
     print("  Generating observations...")
-    observations, true_params, true_manning = generate_observations(
-        forcings, areas, downstream
-    )
+    observations, true_params, true_manning = generate_observations(forcings, areas, downstream)
 
     # Test different parameter configurations
     configurations = [
         ("Global", []),  # All parameters global
         ("Spatial_key", ["S1_max", "S2_max", "ks"]),  # Key params spatial
         ("Spatial_full", ["S1_max", "S2_max", "ku", "ks", "ki", "alpha"]),
-        ("Spatial_all", ["S1_max", "S2_max", "ku", "ks", "ki", "kq",
-                         "alpha", "beta", "f_tens"]),
+        ("Spatial_all", ["S1_max", "S2_max", "ku", "ks", "ki", "kq", "alpha", "beta", "f_tens"]),
     ]
 
     if quick:
@@ -360,21 +380,22 @@ def run_experiment(quick: bool = False):
 
         start_time = time.time()
         history, n_params = calibrate_distributed(
-            forcings, observations, areas, downstream,
-            spatial_params, max_epochs
+            forcings, observations, areas, downstream, spatial_params, max_epochs
         )
         elapsed = time.time() - start_time
 
         final_nse = history[-1]["nse"]
 
-        results.append({
-            "configuration": config_name,
-            "n_spatial_params": len(spatial_params),
-            "n_total_params": n_params,
-            "final_nse": final_nse,
-            "epochs": len(history),
-            "time_s": elapsed,
-        })
+        results.append(
+            {
+                "configuration": config_name,
+                "n_spatial_params": len(spatial_params),
+                "n_total_params": n_params,
+                "final_nse": final_nse,
+                "epochs": len(history),
+                "time_s": elapsed,
+            }
+        )
 
         for h in history:
             h["configuration"] = config_name
@@ -395,7 +416,9 @@ def run_experiment(quick: bool = False):
     print(f"{'Config':<20} {'Params':<10} {'NSE':<10} {'Time (s)':<10}")
     print("-" * 70)
     for r in results:
-        print(f"{r['configuration']:<20} {r['n_total_params']:<10} {r['final_nse']:<10.3f} {r['time_s']:<10.1f}")
+        print(
+            f"{r['configuration']:<20} {r['n_total_params']:<10} {r['final_nse']:<10.3f} {r['time_s']:<10.1f}"
+        )
 
     print(f"\nResults saved to: {RESULTS_DIR}")
 

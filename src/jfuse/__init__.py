@@ -23,6 +23,7 @@ Example:
 # IMPORTANT: Keep x64 disabled for compatibility with neuralgcm coupling
 # neuralgcm requires float32 for pretrained checkpoints to work correctly
 import jax
+
 jax.config.update("jax_enable_x64", False)
 
 __version__ = "0.2.1"
@@ -109,6 +110,7 @@ from jfuse.optim.calibration import (
     CalibrationConfig,
 )
 
+
 # Convenience function for quick model setup
 def quick_setup(
     forcing_path: str,
@@ -117,12 +119,12 @@ def quick_setup(
 ) -> CoupledModel:
     """
     Quick setup of a coupled FUSE + routing model from NetCDF files.
-    
+
     Args:
         forcing_path: Path to forcing NetCDF file
         network_path: Path to network topology NetCDF file
         config: Model configuration (defaults to PRMS)
-        
+
     Returns:
         CoupledModel ready for simulation and calibration
     """
@@ -156,7 +158,7 @@ def register():
         config_adapter=JFUSEConfigAdapter,
         result_extractor=JFUSEResultExtractor,
         runner=JFUSERunner,
-        runner_method='run_jfuse',
+        runner_method="run_jfuse",
         preprocessor=JFUSEPreProcessor,
         postprocessor=JFUSEPostProcessor,
         worker=JFUSEWorker,
@@ -165,7 +167,7 @@ def register():
     )
 
     # Routed postprocessor variant registered under its own key.
-    R.postprocessors.add('JFUSE_routed', JFUSERoutedPostProcessor)
+    R.postprocessors.add("JFUSE_routed", JFUSERoutedPostProcessor)
 
 
 __all__ = [

@@ -18,10 +18,9 @@ import pandas as pd
 PROJECT_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_DIR / "src"))
 
-from jfuse.fuse.model import fuse_simulate, create_fuse_model
+from jfuse.fuse.model import create_fuse_model
 from jfuse.fuse.state import FUSEState, FUSEParams, FUSEForcing, get_default_params
 from jfuse.fuse.config import PRMS_CONFIG
-from jfuse.coupled import nse_loss
 
 import jax
 import jax.numpy as jnp
@@ -65,8 +64,7 @@ def generate_synthetic_observations(forcing: FUSEForcing, params: FUSEParams):
     return jnp.array(np.maximum(0, obs), dtype=jnp.float32)
 
 
-def create_loss_function(forcing: FUSEForcing, observations: jnp.ndarray,
-                         warmup: int = 30):
+def create_loss_function(forcing: FUSEForcing, observations: jnp.ndarray, warmup: int = 30):
     """Create a loss function for parameter optimization."""
     model = create_fuse_model(PRMS_CONFIG)
     initial_state = FUSEState.zeros()
@@ -86,16 +84,39 @@ def create_loss_function(forcing: FUSEForcing, observations: jnp.ndarray,
     return loss_fn
 
 
-def finite_difference_gradient(loss_fn, params: FUSEParams, param_name: str,
-                               eps: float = 1e-4):
+def finite_difference_gradient(loss_fn, params: FUSEParams, param_name: str, eps: float = 1e-4):
     """Compute gradient using central finite differences."""
     params_array = params.to_array()
     param_names = [
-        "S1_max", "S2_max", "ku", "ks", "ki", "kq", "alpha", "beta", "chi",
-        "phi", "psi", "f_tens", "f_1", "f_2", "lambda_baseflow", "c_baseflow",
-        "n_baseflow", "m_topmodel", "f_root", "r_exp", "melt_factor",
-        "melt_temp", "rain_temp", "snow_temp", "melt_factor_amp",
-        "gamma_shape", "gamma_scale", "rainfall_mult", "rainfall_add",
+        "S1_max",
+        "S2_max",
+        "ku",
+        "ks",
+        "ki",
+        "kq",
+        "alpha",
+        "beta",
+        "chi",
+        "phi",
+        "psi",
+        "f_tens",
+        "f_1",
+        "f_2",
+        "lambda_baseflow",
+        "c_baseflow",
+        "n_baseflow",
+        "m_topmodel",
+        "f_root",
+        "r_exp",
+        "melt_factor",
+        "melt_temp",
+        "rain_temp",
+        "snow_temp",
+        "melt_factor_amp",
+        "gamma_shape",
+        "gamma_scale",
+        "rainfall_mult",
+        "rainfall_add",
         "manning_n",
     ]
 
@@ -123,11 +144,35 @@ def finite_difference_gradient(loss_fn, params: FUSEParams, param_name: str,
 def jax_gradient(loss_fn, params: FUSEParams, param_name: str):
     """Compute gradient using JAX automatic differentiation."""
     param_names = [
-        "S1_max", "S2_max", "ku", "ks", "ki", "kq", "alpha", "beta", "chi",
-        "phi", "psi", "f_tens", "f_1", "f_2", "lambda_baseflow", "c_baseflow",
-        "n_baseflow", "m_topmodel", "f_root", "r_exp", "melt_factor",
-        "melt_temp", "rain_temp", "snow_temp", "melt_factor_amp",
-        "gamma_shape", "gamma_scale", "rainfall_mult", "rainfall_add",
+        "S1_max",
+        "S2_max",
+        "ku",
+        "ks",
+        "ki",
+        "kq",
+        "alpha",
+        "beta",
+        "chi",
+        "phi",
+        "psi",
+        "f_tens",
+        "f_1",
+        "f_2",
+        "lambda_baseflow",
+        "c_baseflow",
+        "n_baseflow",
+        "m_topmodel",
+        "f_root",
+        "r_exp",
+        "melt_factor",
+        "melt_temp",
+        "rain_temp",
+        "snow_temp",
+        "melt_factor_amp",
+        "gamma_shape",
+        "gamma_scale",
+        "rainfall_mult",
+        "rainfall_add",
         "manning_n",
     ]
 
@@ -149,12 +194,20 @@ def jax_gradient(loss_fn, params: FUSEParams, param_name: str):
 def run_experiment(quick: bool = False):
     """Run gradient verification experiment."""
     print("Experiment 2: Gradient Verification")
-    print("="*50)
+    print("=" * 50)
 
     # Parameters to test
     params_to_test = [
-        "S1_max", "S2_max", "ku", "ks", "ki", "alpha", "beta",
-        "f_tens", "lambda_baseflow", "manning_n",
+        "S1_max",
+        "S2_max",
+        "ku",
+        "ks",
+        "ki",
+        "alpha",
+        "beta",
+        "f_tens",
+        "lambda_baseflow",
+        "manning_n",
     ]
 
     if quick:
@@ -190,27 +243,31 @@ def run_experiment(quick: bool = False):
             else:
                 rel_error = abs(jax_grad - fd_grad) * 100
 
-            results.append({
-                "parameter": param_name,
-                "jax_gradient": jax_grad,
-                "fd_gradient": fd_grad,
-                "abs_error": abs(jax_grad - fd_grad),
-                "rel_error_pct": rel_error,
-                "status": "PASS" if rel_error < 5.0 else "FAIL",
-            })
+            results.append(
+                {
+                    "parameter": param_name,
+                    "jax_gradient": jax_grad,
+                    "fd_gradient": fd_grad,
+                    "abs_error": abs(jax_grad - fd_grad),
+                    "rel_error_pct": rel_error,
+                    "status": "PASS" if rel_error < 5.0 else "FAIL",
+                }
+            )
 
             print(f"JAX: {jax_grad:.6f}, FD: {fd_grad:.6f}, Error: {rel_error:.2f}%")
 
         except Exception as e:
             print(f"FAILED: {e}")
-            results.append({
-                "parameter": param_name,
-                "jax_gradient": np.nan,
-                "fd_gradient": np.nan,
-                "abs_error": np.nan,
-                "rel_error_pct": np.nan,
-                "status": "ERROR",
-            })
+            results.append(
+                {
+                    "parameter": param_name,
+                    "jax_gradient": np.nan,
+                    "fd_gradient": np.nan,
+                    "abs_error": np.nan,
+                    "rel_error_pct": np.nan,
+                    "status": "ERROR",
+                }
+            )
 
     # Save results
     df = pd.DataFrame(results)
@@ -220,10 +277,12 @@ def run_experiment(quick: bool = False):
     n_pass = sum(1 for r in results if r["status"] == "PASS")
     n_total = len(results)
 
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Parameters tested: {n_total}")
     print(f"  Passed (<5% error): {n_pass}/{n_total}")
-    print(f"  Max relative error: {max(r['rel_error_pct'] for r in results if not np.isnan(r['rel_error_pct'])):.2f}%")
+    print(
+        f"  Max relative error: {max(r['rel_error_pct'] for r in results if not np.isnan(r['rel_error_pct'])):.2f}%"
+    )
 
     print(f"\nResults saved to: {RESULTS_DIR}")
 

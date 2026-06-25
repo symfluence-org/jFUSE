@@ -9,7 +9,6 @@ Outputs:
     - figures/distributed_results.pdf
 """
 
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -24,7 +23,8 @@ FIGURES_DIR.mkdir(exist_ok=True)
 try:
     import matplotlib.pyplot as plt
     import matplotlib
-    matplotlib.use('Agg')  # Non-interactive backend
+
+    matplotlib.use("Agg")  # Non-interactive backend
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -57,8 +57,13 @@ def plot_calibration_convergence():
 
     for method in df["method"].unique():
         method_df = df[df["method"] == method]
-        ax.plot(method_df["func_evals"], method_df["nse"],
-                label=method, color=colors.get(method, "gray"), linewidth=2)
+        ax.plot(
+            method_df["func_evals"],
+            method_df["nse"],
+            label=method,
+            color=colors.get(method, "gray"),
+            linewidth=2,
+        )
 
     # Target lines
     for target in [0.7, 0.8, 0.85]:
@@ -103,8 +108,8 @@ def plot_model_fidelity():
     x = np.arange(len(df))
     width = 0.35
 
-    ax1.bar(x - width/2, df["vs_fortran_rmse"], width, label="vs Fortran FUSE", color="#1f77b4")
-    ax1.bar(x + width/2, df["vs_dfuse_rmse"], width, label="vs dFUSE", color="#2ca02c")
+    ax1.bar(x - width / 2, df["vs_fortran_rmse"], width, label="vs Fortran FUSE", color="#1f77b4")
+    ax1.bar(x + width / 2, df["vs_dfuse_rmse"], width, label="vs dFUSE", color="#2ca02c")
 
     ax1.set_xlabel("Model Configuration", fontsize=12)
     ax1.set_ylabel("RMSE (mm/day)", fontsize=12)
@@ -114,8 +119,8 @@ def plot_model_fidelity():
 
     # Correlation comparison
     ax2 = axes[1]
-    ax2.bar(x - width/2, df["vs_fortran_corr"], width, label="vs Fortran FUSE", color="#1f77b4")
-    ax2.bar(x + width/2, df["vs_dfuse_corr"], width, label="vs dFUSE", color="#2ca02c")
+    ax2.bar(x - width / 2, df["vs_fortran_corr"], width, label="vs Fortran FUSE", color="#1f77b4")
+    ax2.bar(x + width / 2, df["vs_dfuse_corr"], width, label="vs dFUSE", color="#2ca02c")
 
     ax2.set_xlabel("Model Configuration", fontsize=12)
     ax2.set_ylabel("Correlation", fontsize=12)
@@ -160,8 +165,9 @@ def plot_gradient_verification():
     ax1.plot(lims, lims, "k--", alpha=0.5, label="1:1 line")
 
     for i, row in df.iterrows():
-        ax1.annotate(row["parameter"], (row["fd_gradient"], row["jax_gradient"]),
-                     fontsize=8, alpha=0.7)
+        ax1.annotate(
+            row["parameter"], (row["fd_gradient"], row["jax_gradient"]), fontsize=8, alpha=0.7
+        )
 
     ax1.set_xlabel("Finite Difference Gradient", fontsize=12)
     ax1.set_ylabel("JAX Automatic Gradient", fontsize=12)
@@ -210,22 +216,38 @@ def plot_distributed_results():
     ax1.set_ylabel("Final NSE", fontsize=12)
     ax1.set_title("Calibration Performance by Configuration", fontsize=14)
     ax1.set_ylim(0.7, 1.0)
-    ax1.tick_params(axis='x', rotation=45)
+    ax1.tick_params(axis="x", rotation=45)
 
     # Add parameter count labels
     for bar, n_params in zip(bars, df["n_total_params"]):
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                 f"n={n_params}", ha="center", fontsize=9)
+        ax1.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            f"n={n_params}",
+            ha="center",
+            fontsize=9,
+        )
 
     # Time vs parameters scatter
     ax2 = axes[1]
-    ax2.scatter(df["n_total_params"], df["time_s"], s=200, c=df["final_nse"],
-                cmap="RdYlGn", vmin=0.7, vmax=1.0)
+    ax2.scatter(
+        df["n_total_params"],
+        df["time_s"],
+        s=200,
+        c=df["final_nse"],
+        cmap="RdYlGn",
+        vmin=0.7,
+        vmax=1.0,
+    )
 
     for i, row in df.iterrows():
-        ax2.annotate(row["configuration"],
-                     (row["n_total_params"], row["time_s"]),
-                     fontsize=9, ha="center", va="bottom")
+        ax2.annotate(
+            row["configuration"],
+            (row["n_total_params"], row["time_s"]),
+            fontsize=9,
+            ha="center",
+            va="bottom",
+        )
 
     ax2.set_xlabel("Number of Parameters", fontsize=12)
     ax2.set_ylabel("Calibration Time (s)", fontsize=12)

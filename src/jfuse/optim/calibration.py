@@ -20,6 +20,7 @@ from ..fuse.state import Parameters, PARAM_BOUNDS
 
 class CalibrationState(NamedTuple):
     """State maintained during calibration."""
+
     params: Parameters
     opt_state: Any
     step: int
@@ -32,7 +33,7 @@ class CalibrationState(NamedTuple):
 @dataclass
 class CalibrationConfig:
     """Configuration for calibration runs.
-    
+
     Attributes:
         max_iterations: Maximum number of optimization steps
         learning_rate: Initial learning rate for optimizer
@@ -47,6 +48,7 @@ class CalibrationConfig:
         checkpoint_every: Save checkpoint every N steps
         seed: Random seed for reproducibility
     """
+
     max_iterations: int = 1000
     learning_rate: float = 0.01
     warmup_steps: int = 100
@@ -63,10 +65,10 @@ class CalibrationConfig:
 
 def create_optimizer(config: CalibrationConfig) -> optax.GradientTransformation:
     """Create optax optimizer with learning rate schedule.
-    
+
     Args:
         config: Calibration configuration
-        
+
     Returns:
         Chained optax transformation
     """
@@ -81,7 +83,7 @@ def create_optimizer(config: CalibrationConfig) -> optax.GradientTransformation:
         decay_steps=total_steps,
         end_value=config.min_learning_rate,
     )
-    
+
     # Select base optimizer
     if config.optimizer == "adam":
         base_opt = optax.adam(learning_rate=schedule)
@@ -93,7 +95,7 @@ def create_optimizer(config: CalibrationConfig) -> optax.GradientTransformation:
         base_opt = optax.rmsprop(learning_rate=schedule)
     else:
         raise ValueError(f"Unknown optimizer: {config.optimizer}")
-    
+
     # Chain with gradient clipping
     return optax.chain(
         optax.clip_by_global_norm(config.clip_gradients),
@@ -104,9 +106,10 @@ def create_optimizer(config: CalibrationConfig) -> optax.GradientTransformation:
 def _get_field_names(obj) -> list:
     """Get field names from dataclass, NamedTuple, or equinox.Module."""
     import dataclasses
+
     if dataclasses.is_dataclass(obj):
         return [f.name for f in dataclasses.fields(obj)]
-    elif hasattr(obj, '_fields'):
+    elif hasattr(obj, "_fields"):
         return list(obj._fields)
     else:
         raise TypeError(f"Cannot get fields from {type(obj)}")
@@ -160,8 +163,15 @@ def _reconstruct_parameters(params: Parameters, base_values: dict) -> Parameters
 
 # List of derived parameter names that should not be transformed
 _DERIVED_PARAMS = {
-    "S1_T_max", "S1_F_max", "S1_TA_max", "S1_TB_max",
-    "S2_T_max", "S2_F_max", "S2_FA_max", "S2_FB_max", "m"
+    "S1_T_max",
+    "S1_F_max",
+    "S1_TA_max",
+    "S1_TB_max",
+    "S2_T_max",
+    "S2_F_max",
+    "S2_FA_max",
+    "S2_FB_max",
+    "m",
 }
 
 
@@ -311,10 +321,10 @@ def clip_to_bounds(params: Parameters) -> Parameters:
 
 def compute_grad_norm(grads: Parameters) -> float:
     """Compute L2 norm of parameter gradients.
-    
+
     Args:
         grads: Gradient structure matching Parameters
-        
+
     Returns:
         Scalar L2 norm
     """
@@ -325,18 +335,18 @@ def compute_grad_norm(grads: Parameters) -> float:
 
 class Calibrator:
     """High-level calibration interface for jFUSE models.
-    
+
     Supports both FUSE-only and coupled FUSE+routing calibration with
     gradient-based optimization using optax.
-    
+
     Example:
         >>> from jfuse import CoupledModel
         >>> from jfuse.optim import Calibrator, CalibrationConfig
-        >>> 
+        >>>
         >>> model = CoupledModel(...)
         >>> config = CalibrationConfig(max_iterations=500, learning_rate=0.01)
         >>> calibrator = Calibrator(model, config)
-        >>> 
+        >>>
         >>> result = calibrator.calibrate(
         ...     forcing=forcing_data,
         ...     observed=observed_discharge,
@@ -344,14 +354,14 @@ class Calibrator:
         ... )
         >>> print(f"Final KGE: {1 - result['final_loss']:.3f}")
     """
-    
+
     def __init__(
         self,
         model: Any,
         config: Optional[CalibrationConfig] = None,
     ):
         """Initialize calibrator.
-        
+
         Args:
             model: FUSEModel or CoupledModel instance
             config: Calibration configuration (uses defaults if None)
@@ -363,25 +373,25 @@ class Calibrator:
         # calibrate_multi_site), calibrate() uses it instead of building one
         # from a single forcing/observed pair.
         self._loss_fn = None
-    
+
     def _create_loss_fn(
         self,
         forcing: Tuple,
         observed: jnp.ndarray,
-        loss_type: str = 'kge',
+        loss_type: str = "kge",
         warmup_steps: int = 365,
         weights: Optional[Dict[str, float]] = None,
     ) -> Callable[[Parameters], float]:
         """Create loss function for calibration.
-        
+
         Args:
             forcing: Tuple of forcing arrays (precip, pet, temp)
             observed: Observed discharge array
-            loss_type: Loss type - single ('kge', 'nse', 'rmse', 'mse', 'mae') 
+            loss_type: Loss type - single ('kge', 'nse', 'rmse', 'mse', 'mae')
                        or comma-separated for multi-objective ('kge,nse')
             warmup_steps: Number of timesteps to skip for loss calculation
             weights: Weights for multi-objective loss (equal weights if None)
-            
+
         Returns:
             Loss function taking parameters and returning scalar loss
         """
@@ -389,21 +399,23 @@ class Calibrator:
 
         # Map loss names to functions
         loss_functions = {
-            'kge': kge_loss,
-            'nse': nse_loss,
-            'mse': mse_loss,
-            'rmse': rmse_loss,
-            'mae': mae_loss,
+            "kge": kge_loss,
+            "nse": nse_loss,
+            "mse": mse_loss,
+            "rmse": rmse_loss,
+            "mae": mae_loss,
         }
-        
+
         # Parse loss_type - could be single or comma-separated
-        loss_types = [lt.strip().lower() for lt in loss_type.split(',')]
-        
+        loss_types = [lt.strip().lower() for lt in loss_type.split(",")]
+
         # Validate loss types
         for lt in loss_types:
             if lt not in loss_functions:
-                raise ValueError(f"Unknown loss type: {lt}. Available: {list(loss_functions.keys())}")
-        
+                raise ValueError(
+                    f"Unknown loss type: {lt}. Available: {list(loss_functions.keys())}"
+                )
+
         # Set up weights for multi-objective
         if len(loss_types) > 1:
             if weights is None:
@@ -416,7 +428,7 @@ class Calibrator:
                     weights = {lt: weights.get(lt, 0.0) / total_w for lt in loss_types}
                 else:
                     weights = {lt: 1.0 / len(loss_types) for lt in loss_types}
-        
+
         # Ensure observations are 1D (outlet only)
         obs_1d = observed
         if observed.ndim > 1:
@@ -425,7 +437,7 @@ class Calibrator:
                 obs_1d = observed.squeeze(-1)
             else:
                 obs_1d = observed[:, 0]  # Assume first column is outlet
-        
+
         def loss_fn(params: Parameters) -> float:
             # Run simulation - detect model type properly
             if isinstance(self.model, CoupledModel):
@@ -433,7 +445,7 @@ class Calibrator:
                 # NOTE: outlet_Q is in m³/s, but obs are in mm/day
                 # Use aggregated runoff for calibration (same units as obs)
                 outlet_Q, runoff = self.model.simulate(forcing, params)
-                
+
                 # Aggregate runoff to outlet (area-weighted mean)
                 if runoff.ndim > 1:
                     sim = jnp.mean(runoff, axis=1)  # mm/day
@@ -443,68 +455,70 @@ class Calibrator:
                 # FUSEModel returns (runoff, final_state)
                 state = self.model.default_state()
                 runoff, _ = self.model.simulate(forcing, params, state)
-                
+
                 # Aggregate if distributed
                 if runoff.ndim > 1:
                     sim = jnp.mean(runoff, axis=1)  # Area-weighted average
                 else:
                     sim = runoff
-            
+
             # Apply warmup
             sim_eval = sim[warmup_steps:]
             obs_eval = obs_1d[warmup_steps:]
-            
+
             # Single objective
             if len(loss_types) == 1:
                 return loss_functions[loss_types[0]](sim_eval, obs_eval)
-            
+
             # Multi-objective: weighted sum
             total = 0.0
             for lt in loss_types:
                 loss_val = loss_functions[lt](sim_eval, obs_eval)
-                
+
                 # Normalize RMSE/MSE/MAE by observed std for scale invariance
-                if lt in ['rmse', 'mse', 'mae']:
+                if lt in ["rmse", "mse", "mae"]:
                     obs_std = jnp.std(obs_eval)
-                    if lt == 'mse':
-                        loss_val = loss_val / jnp.maximum(obs_std ** 2, 1e-6)
+                    if lt == "mse":
+                        loss_val = loss_val / jnp.maximum(obs_std**2, 1e-6)
                     else:
                         loss_val = loss_val / jnp.maximum(obs_std, 1e-6)
-                
+
                 total += weights[lt] * loss_val
-            
+
             return total
-        
+
         return loss_fn
-    
+
     def _make_step_fn(
         self,
         loss_fn: Callable[[Parameters], float],
         use_bounded_transform: bool = True,
     ) -> Callable:
         """Create JIT-compiled optimization step function.
-        
+
         Args:
             loss_fn: Loss function taking parameters
             use_bounded_transform: Whether to use logit/sigmoid transforms
-            
+
         Returns:
             JIT-compiled step function
         """
+
         @jax.jit
         def step_bounded(params_unbounded, opt_state):
             """Step with bounded parameter transform."""
+
             def loss_wrapper(p_unbounded):
                 p_bounded = transform_to_bounded(p_unbounded)
                 return loss_fn(p_bounded)
-            
+
             loss, grads = jax.value_and_grad(loss_wrapper)(params_unbounded)
             updates, new_opt_state = self.optimizer.update(grads, opt_state, params_unbounded)
             new_params = optax.apply_updates(params_unbounded, updates)
             grad_norm = compute_grad_norm(grads)
-            
+
             return new_params, new_opt_state, loss, grad_norm
-        
+
         @jax.jit
         def step_clipped(params, opt_state):
             """Step with gradient clipping and bound enforcement."""
@@ -513,24 +527,24 @@ class Calibrator:
             new_params = optax.apply_updates(params, updates)
             new_params = clip_to_bounds(new_params)
             grad_norm = compute_grad_norm(grads)
-            
+
             return new_params, new_opt_state, loss, grad_norm
-        
+
         return step_bounded if use_bounded_transform else step_clipped
-    
+
     def calibrate(
         self,
         forcing: Tuple,
         observed: jnp.ndarray,
         initial_params: Optional[Parameters] = None,
-        loss_fn: str = 'kge',
+        loss_fn: str = "kge",
         warmup_steps: int = 365,
         use_bounded_transform: bool = True,
         callback: Optional[Callable[[int, float, Parameters], None]] = None,
         verbose: bool = True,
     ) -> Dict[str, Any]:
         """Run gradient-based calibration.
-        
+
         Args:
             forcing: Tuple of forcing arrays (precip, pet, temp)
             observed: Observed discharge array
@@ -540,7 +554,7 @@ class Calibrator:
             use_bounded_transform: Use logit/sigmoid for bounds
             callback: Optional function called each step
             verbose: Print progress messages
-            
+
         Returns:
             Dictionary with calibration results:
                 - final_params: Calibrated parameters
@@ -556,7 +570,7 @@ class Calibrator:
         # Initialize parameters
         if initial_params is None:
             initial_params = self.model.default_params()
-        
+
         # Create loss function (or use a pre-built one, e.g. from
         # calibrate_multi_site). A pre-built loss is consumed once so later
         # single-site calibrate() calls on the same Calibrator are unaffected.
@@ -564,43 +578,41 @@ class Calibrator:
             loss_function = self._loss_fn
             self._loss_fn = None
         else:
-            loss_function = self._create_loss_fn(
-                forcing, observed, loss_fn, warmup_steps
-            )
-        
+            loss_function = self._create_loss_fn(forcing, observed, loss_fn, warmup_steps)
+
         # Create step function
         step_fn = self._make_step_fn(loss_function, use_bounded_transform)
-        
+
         # Initialize optimizer state
         if use_bounded_transform:
             params = transform_to_unbounded(initial_params)
         else:
             params = initial_params
-        
+
         opt_state = self.optimizer.init(params)
-        
+
         # Tracking variables
-        best_loss = float('inf')
+        best_loss = float("inf")
         best_params = initial_params
         patience_counter = 0
         loss_history = []
         grad_norm_history = []
-        
+
         start_time = time.time()
-        
+
         if verbose:
             print(f"Starting calibration with {self.config.max_iterations} max iterations")
             print(f"Optimizer: {self.config.optimizer}, LR: {self.config.learning_rate}")
-        
+
         # Optimization loop
         for i in range(self.config.max_iterations):
             params, opt_state, loss, grad_norm = step_fn(params, opt_state)
-            
+
             loss_val = float(loss)
             grad_norm_val = float(grad_norm)
             loss_history.append(loss_val)
             grad_norm_history.append(grad_norm_val)
-            
+
             # Track best
             if loss_val < best_loss - self.config.min_delta:
                 best_loss = loss_val
@@ -611,56 +623,60 @@ class Calibrator:
                 patience_counter = 0
             else:
                 patience_counter += 1
-            
+
             # Callback
             if callback is not None:
                 current_params = transform_to_bounded(params) if use_bounded_transform else params
                 callback(i, loss_val, current_params)
-            
+
             # Logging
             if verbose and (i % self.config.log_every == 0 or i == self.config.max_iterations - 1):
-                metric_val = 1 - loss_val if loss_fn == 'kge' else loss_val
-                print(f"Step {i:4d}: Loss = {loss_val:.6f}, "
-                      f"{'KGE' if loss_fn == 'kge' else 'Metric'} = {metric_val:.4f}, "
-                      f"|grad| = {grad_norm_val:.6f}")
-            
+                metric_val = 1 - loss_val if loss_fn == "kge" else loss_val
+                print(
+                    f"Step {i:4d}: Loss = {loss_val:.6f}, "
+                    f"{'KGE' if loss_fn == 'kge' else 'Metric'} = {metric_val:.4f}, "
+                    f"|grad| = {grad_norm_val:.6f}"
+                )
+
             # Early stopping
             if patience_counter >= self.config.patience:
                 if verbose:
-                    print(f"Early stopping at iteration {i} (no improvement for {self.config.patience} steps)")
+                    print(
+                        f"Early stopping at iteration {i} (no improvement for {self.config.patience} steps)"
+                    )
                 break
-            
+
             # Check for convergence
             if grad_norm_val < 1e-8:
                 if verbose:
                     print(f"Converged at iteration {i} (gradient norm < 1e-8)")
                 break
-        
+
         elapsed_time = time.time() - start_time
-        
+
         # Final parameters
         if use_bounded_transform:
             final_params = transform_to_bounded(params)
         else:
             final_params = params
-        
+
         if verbose:
             print(f"\nCalibration complete in {elapsed_time:.1f}s")
             print(f"Final loss: {loss_history[-1]:.6f}")
             print(f"Best loss: {best_loss:.6f}")
-        
+
         return {
-            'final_params': final_params,
-            'final_loss': loss_history[-1],
-            'best_params': best_params,
-            'best_loss': best_loss,
-            'loss_history': jnp.array(loss_history),
-            'grad_norm_history': jnp.array(grad_norm_history),
-            'n_iterations': len(loss_history),
-            'converged': patience_counter >= self.config.patience or grad_norm_val < 1e-8,
-            'elapsed_time': elapsed_time,
+            "final_params": final_params,
+            "final_loss": loss_history[-1],
+            "best_params": best_params,
+            "best_loss": best_loss,
+            "loss_history": jnp.array(loss_history),
+            "grad_norm_history": jnp.array(grad_norm_history),
+            "n_iterations": len(loss_history),
+            "converged": patience_counter >= self.config.patience or grad_norm_val < 1e-8,
+            "elapsed_time": elapsed_time,
         }
-    
+
     def calibrate_multi_site(
         self,
         forcing_list: List[Tuple],
@@ -669,25 +685,25 @@ class Calibrator:
         **kwargs,
     ) -> Dict[str, Any]:
         """Calibrate using multiple observation sites.
-        
+
         Args:
             forcing_list: List of forcing tuples for each site
             observed_list: List of observed arrays for each site
             site_weights: Weights for each site (uniform if None)
             **kwargs: Additional arguments passed to calibrate()
-            
+
         Returns:
             Calibration results dictionary
         """
         n_sites = len(forcing_list)
         if site_weights is None:
             site_weights = [1.0 / n_sites] * n_sites
-        
+
         # _create_loss_fn only accepts loss-related arguments; the remaining
         # kwargs (use_bounded_transform, callback, verbose, ...) are forwarded
         # to calibrate() below.
-        loss_type = kwargs.get('loss_fn', 'kge')
-        warmup_steps = kwargs.get('warmup_steps', 365)
+        loss_type = kwargs.get("loss_fn", "kge")
+        warmup_steps = kwargs.get("warmup_steps", 365)
 
         site_losses = [
             self._create_loss_fn(forcing, observed, loss_type, warmup_steps)
@@ -717,15 +733,15 @@ def random_search(
     forcing: Tuple,
     observed: jnp.ndarray,
     n_samples: int = 100,
-    loss_fn: str = 'kge',
+    loss_fn: str = "kge",
     warmup_steps: int = 365,
     seed: int = 42,
     verbose: bool = True,
 ) -> Tuple[Parameters, float]:
     """Random search for good initial parameters.
-    
+
     Useful for finding a good starting point for gradient-based optimization.
-    
+
     Args:
         model: FUSEModel or CoupledModel
         forcing: Forcing data tuple
@@ -735,25 +751,25 @@ def random_search(
         warmup_steps: Warmup timesteps
         seed: Random seed
         verbose: Print progress
-        
+
     Returns:
         Tuple of (best_params, best_loss)
     """
     key = random.PRNGKey(seed)
-    
+
     best_params = None
-    best_loss = float('inf')
-    
+    best_loss = float("inf")
+
     # Get default params as template
     default_params = model.default_params()
-    
+
     # Create loss function
     calibrator = Calibrator(model)
     loss_function = calibrator._create_loss_fn(forcing, observed, loss_fn, warmup_steps)
-    
+
     for i in range(n_samples):
         key, subkey = random.split(key)
-        
+
         # Generate random parameters within bounds
         param_values = {}
         for name in default_params.__dataclass_fields__:
@@ -763,24 +779,24 @@ def random_search(
                 param_values[name] = random.uniform(param_key, minval=low, maxval=high)
             else:
                 param_values[name] = getattr(default_params, name)
-        
+
         params = default_params.__class__(**param_values)
-        
+
         try:
             loss = float(loss_function(params))
-            
+
             if loss < best_loss:
                 best_loss = loss
                 best_params = params
-                
+
                 if verbose:
                     print(f"Sample {i+1}/{n_samples}: New best loss = {loss:.6f}")
         except Exception as e:
             if verbose:
                 print(f"Sample {i+1}/{n_samples}: Failed - {e}")
             continue
-    
+
     if verbose:
         print(f"\nRandom search complete. Best loss: {best_loss:.6f}")
-    
+
     return best_params, best_loss
