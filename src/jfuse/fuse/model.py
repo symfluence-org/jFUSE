@@ -266,11 +266,31 @@ def fuse_step(
         # Lapse air temperature to the glacier-surface elevation for ice melt
         # (glacier_dtemp <= 0); defaults to no offset when not provided.
         temp_offset = glacier_dtemp if glacier_dtemp is not None else 0.0
+        # Two-column snow: the glacier fraction sits higher and colder than the
+        # GRU mean, so its snowpack accumulates more and melts later than the
+        # land column. Evolve a separate glacier SWE at the glacier-surface
+        # temperature and feed its rain/melt/snowpack to the glacier reservoir,
+        # rather than the warm GRU-mean land snowmelt (which over-melts and makes
+        # glacier-fed rivers far too flashy).
+        if config.enable_snow:
+            rain_g, melt_g, SWE_glac_new = physics.compute_snow(
+                forcing.precip,
+                forcing.temp + temp_offset,
+                state.SWE_glac,
+                params.T_rain,
+                params.T_melt,
+                params.melt_rate,
+                day_of_year,
+                params.MFMAX,
+                params.MFMIN,
+            )
+        else:
+            rain_g, melt_g, SWE_glac_new = rain, melt, state.SWE_glac
         q_glac, S_glac_new, ICE_new, _ice_melt = physics.compute_glacier(
             forcing.temp,
-            SWE_new,
-            rain,
-            melt,
+            SWE_glac_new,
+            rain_g,
+            melt_g,
             state.S_glac,
             state.ICE,
             params.DDF_ice,
@@ -287,6 +307,7 @@ def fuse_step(
     else:
         ICE_new = state.ICE
         S_glac_new = state.S_glac
+        SWE_glac_new = state.SWE_glac
 
     # =========================================================================
     # BUILD OUTPUT
@@ -306,6 +327,7 @@ def fuse_step(
         SWE=SWE_new.astype(dtype),
         ICE=ICE_new.astype(dtype),
         S_glac=S_glac_new.astype(dtype),
+        SWE_glac=SWE_glac_new.astype(dtype),
     )
 
     flux = Flux(

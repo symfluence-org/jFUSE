@@ -158,6 +158,9 @@ class State(eqx.Module):
     # leaves to the per-HRU shape, so scalar defaults are fine.
     ICE: Array = eqx.field(default=DEFAULT_ICE)
     S_glac: Array = eqx.field(default=0.0)
+    # Snow water equivalent on the glacier fraction, evolved at the (colder)
+    # glacier-surface temperature — separate from the GRU-mean land column SWE.
+    SWE_glac: Array = eqx.field(default=0.0)
 
     @classmethod
     def default(cls, n_hrus: int = 1) -> "State":
@@ -185,6 +188,7 @@ class State(eqx.Module):
             SWE=jnp.full(shape, 0.0, dtype=dtype),
             ICE=jnp.full(shape, DEFAULT_ICE, dtype=dtype),
             S_glac=jnp.full(shape, 0.0, dtype=dtype),
+            SWE_glac=jnp.full(shape, 0.0, dtype=dtype),
         )
 
     def to_array(self) -> Array:
@@ -203,6 +207,7 @@ class State(eqx.Module):
                 self.SWE,
                 self.ICE,
                 self.S_glac,
+                self.SWE_glac,
             ],
             axis=-1,
         )
@@ -217,6 +222,8 @@ class State(eqx.Module):
         has_glacier = arr.shape[-1] >= 12
         ICE = arr[..., 10] if has_glacier else jnp.full_like(arr[..., 9], DEFAULT_ICE)
         S_glac = arr[..., 11] if has_glacier else jnp.zeros_like(arr[..., 9])
+        # Glacier-snow column (13th) is optional; legacy arrays default it to 0.
+        SWE_glac = arr[..., 12] if arr.shape[-1] >= 13 else jnp.zeros_like(arr[..., 9])
         return cls(
             S1=arr[..., 0],
             S1_T=arr[..., 1],
@@ -230,6 +237,7 @@ class State(eqx.Module):
             SWE=arr[..., 9],
             ICE=ICE,
             S_glac=S_glac,
+            SWE_glac=SWE_glac,
         )
 
 
@@ -429,10 +437,12 @@ class Parameters(eqx.Module):
             "MFMAX": 4.5,
             "MFMIN": 1.0,
             "smooth_frac": 0.01,
-            # Glacier: ice melts ~1.6x faster than snow by default; fast reservoir.
+            # Glacier: ice melts ~1.6x faster than snow by default. K_glac=0.1
+            # buffers the glacier reservoir to a few days' residence (faster
+            # over-attenuates and made glacier-fed rivers too flashy).
             "DDF_ice": 7.0,
             "T_ice": 0.0,
-            "K_glac": 0.3,
+            "K_glac": 0.1,
         }
 
         # Convert to arrays with explicit dtype
@@ -474,7 +484,7 @@ class Parameters(eqx.Module):
         """Default value for a parameter, used to pad legacy (pre-glacier)
         parameter arrays. Glacier params get physical defaults; anything else
         falls back to the midpoint of its bounds."""
-        glacier_defaults = {"DDF_ice": 7.0, "T_ice": 0.0, "K_glac": 0.3}
+        glacier_defaults = {"DDF_ice": 7.0, "T_ice": 0.0, "K_glac": 0.1}
         if name in glacier_defaults:
             return glacier_defaults[name]
         lo, hi = PARAM_BOUNDS.get(name, (0.0, 1.0))
