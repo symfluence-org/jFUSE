@@ -55,6 +55,8 @@ PARAM_NAMES = (
     "DDF_ice",  # Ice degree-day melt factor (mm/°C/day)
     "T_ice",  # Ice-melt threshold temperature (°C)
     "K_glac",  # Glacier-reservoir release coefficient (1/day)
+    # --- Precipitation correction (appended; legacy arrays default to neutral) ---
+    "SCF",  # Snow correction factor (gauge undercatch of solid precip)
 )
 
 # Parameter bounds: (lower, upper)
@@ -96,6 +98,9 @@ PARAM_BOUNDS: Dict[str, Tuple[float, float]] = {
     "DDF_ice": (3.0, 8.0),
     "T_ice": (-2.0, 2.0),
     "K_glac": (0.01, 1.0),
+    # Snow correction factor: 1 = no correction; up to 3 for severe wind-driven
+    # solid-precip gauge undercatch (Iceland is exceptionally windy).
+    "SCF": (1.0, 3.0),
 }
 
 NUM_PARAMETERS = len(PARAM_NAMES)
@@ -387,6 +392,9 @@ class Parameters(eqx.Module):
     T_ice: Array  # Ice-melt threshold temperature (°C)
     K_glac: Array  # Glacier-reservoir release coefficient (1/day)
 
+    # Precipitation correction
+    SCF: Array  # Snow correction factor (multiplies frozen precip; 1 = none)
+
     # Derived parameters (computed from above)
     S1_T_max: Array  # = f_tens * S1_max
     S1_F_max: Array  # = (1 - f_tens) * S1_max
@@ -433,7 +441,7 @@ class Parameters(eqx.Module):
             "T_melt": 0.0,
             "melt_rate": 3.0,
             "lapse_rate": 0.65,
-            "opg": 5.0,
+            "opg": 0.0,  # neutral: no orographic precip enhancement until calibrated
             "MFMAX": 4.5,
             "MFMIN": 1.0,
             "smooth_frac": 0.01,
@@ -443,6 +451,8 @@ class Parameters(eqx.Module):
             "DDF_ice": 7.0,
             "T_ice": 0.0,
             "K_glac": 0.1,
+            # Precip correction: SCF=1 => no snow undercatch correction by default.
+            "SCF": 1.0,
         }
 
         # Convert to arrays with explicit dtype
@@ -484,9 +494,11 @@ class Parameters(eqx.Module):
         """Default value for a parameter, used to pad legacy (pre-glacier)
         parameter arrays. Glacier params get physical defaults; anything else
         falls back to the midpoint of its bounds."""
-        glacier_defaults = {"DDF_ice": 7.0, "T_ice": 0.0, "K_glac": 0.1}
-        if name in glacier_defaults:
-            return glacier_defaults[name]
+        # Physical/neutral defaults so padding a legacy array doesn't silently
+        # change behaviour (SCF=1 => no snow correction).
+        explicit_defaults = {"DDF_ice": 7.0, "T_ice": 0.0, "K_glac": 0.1, "SCF": 1.0}
+        if name in explicit_defaults:
+            return explicit_defaults[name]
         lo, hi = PARAM_BOUNDS.get(name, (0.0, 1.0))
         return 0.5 * (lo + hi)
 

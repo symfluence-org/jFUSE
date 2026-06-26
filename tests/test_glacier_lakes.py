@@ -33,13 +33,14 @@ def _forcing(n_t=200, n_hru=4, seed=0):
 
 class TestGlacier:
     def test_params_appended_without_shifting_indices(self):
-        assert NUM_PARAMETERS == 33
-        assert PARAM_NAMES[-3:] == ("DDF_ice", "T_ice", "K_glac")
-        # Legacy 30-wide arrays still load (trailing glacier params defaulted).
+        assert NUM_PARAMETERS == 34
+        assert PARAM_NAMES[-4:] == ("DDF_ice", "T_ice", "K_glac", "SCF")
+        # Legacy 30-wide arrays still load (trailing glacier + SCF params defaulted).
         legacy = jnp.ones((30,))
         p = Parameters.from_array(legacy, n_hrus=1)
         assert float(p.DDF_ice) == pytest.approx(7.0)
         assert float(p.K_glac) == pytest.approx(0.1)
+        assert float(p.SCF) == pytest.approx(1.0)
 
     def test_zero_fraction_is_identical_to_no_glacier(self):
         forcing = _forcing()

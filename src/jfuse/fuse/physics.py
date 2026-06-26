@@ -124,6 +124,7 @@ def compute_snow(
     day_of_year: int = 1,
     MFMAX: Optional[Array] = None,
     MFMIN: Optional[Array] = None,
+    SCF: ArrayLike = 1.0,
 ) -> Tuple[Array, Array, Array]:
     """Snow accumulation and melt using temperature-index method.
 
@@ -139,6 +140,8 @@ def compute_snow(
         day_of_year: Day of year for seasonal melt factor (1-365)
         MFMAX: Maximum seasonal melt factor (optional)
         MFMIN: Minimum seasonal melt factor (optional)
+        SCF: Snow correction factor multiplying the solid-precip fraction to
+            correct wind-driven gauge undercatch of snow (1.0 = no correction).
 
     Returns:
         Tuple of (rain, melt, SWE_new)
@@ -157,7 +160,9 @@ def compute_snow(
     transition_width = 2.0  # °C - width of rain/snow transition
     snow_frac = smooth_sigmoid(T_rain - temp, transition_width)
 
-    snow = precip * snow_frac
+    # Snow correction factor corrects gauge undercatch of solid precip only;
+    # rain is left as measured.
+    snow = precip * snow_frac * SCF
     rain = precip * (1.0 - snow_frac)
 
     # Potential melt using degree-day method

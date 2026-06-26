@@ -214,6 +214,7 @@ class JFUSEWorker(InMemoryModelWorker):
         self._network_arrays: Any = None
         self._glacier_frac: Any = None  # Per-GRU glacier fraction (set in forcing load)
         self._glacier_dtemp: Any = None  # Per-GRU glacier-surface temp offset (K, <=0)
+        self._elev_anom: Any = None  # Per-GRU elevation anomaly (100m units) for opg
 
         # Distributed mode output
         self._last_outlet_q: Any = None
@@ -332,6 +333,41 @@ class JFUSEWorker(InMemoryModelWorker):
             return jnp.asarray(dtemp)
         except Exception:  # noqa: BLE001 — glacier lapse is optional, never block calibration
             self.logger.debug("Glacier dtemp load failed", exc_info=True)
+            return None
+
+    def _load_elev_anom_aligned(self, data_dir, domain_name, gru_ids, n_expected):
+        """Per-GRU elevation anomaly (100m units) vs the domain-mean elevation,
+        aligned to the forcing GRUs, for the orographic precip gradient (opg).
+        Returns a ``jnp`` array ``[n_expected]`` or ``None``.
+        """
+        import jax.numpy as jnp
+
+        if gru_ids is None:
+            return None
+        project_dir = Path(data_dir) / f"domain_{domain_name}"
+        attr_csv = project_dir / "settings" / "FUSE" / "subcatchment_attributes.csv"
+        if not attr_csv.exists():
+            return None
+        try:
+            import pandas as pd
+
+            elev_by_id = pd.read_csv(attr_csv).set_index("gru_id")["elev_m"].to_dict()
+            elev = np.array(
+                [float(elev_by_id.get(int(g), np.nan)) for g in gru_ids], dtype="float64"
+            )
+            if elev.size != n_expected or not np.isfinite(elev).any():
+                return None
+            ref = float(np.nanmean(elev))
+            anom = np.where(np.isfinite(elev), (elev - ref) / 100.0, 0.0).astype("float32")
+            self.logger.info(
+                "Elevation anomaly for opg: ref=%.0f m, anomaly range %.1f to %.1f (100m units).",
+                ref,
+                float(anom.min()),
+                float(anom.max()),
+            )
+            return jnp.asarray(anom)
+        except Exception:  # noqa: BLE001 — opg is optional, never block calibration
+            self.logger.debug("Elevation anomaly load failed", exc_info=True)
             return None
 
     def _load_lumped_glacier_frac(self):
@@ -645,6 +681,7 @@ class JFUSEWorker(InMemoryModelWorker):
             routing_max_substeps=self.routing_max_substeps,
             glacier_frac=glacier_frac,
             glacier_dtemp=self._glacier_dtemp,
+            elev_anom=self._elev_anom,
         )
         self._model = self._coupled_model.fuse_model
         self._default_params = self._coupled_model.default_params()
@@ -914,6 +951,14 @@ class JFUSEWorker(InMemoryModelWorker):
             gru_ids=gru_ids,
             n_expected=int(precip.shape[1]),
         )
+        # Per-GRU elevation anomaly (100m units vs domain mean) for the
+        # orographic precip gradient (opg).
+        self._elev_anom = self._load_elev_anom_aligned(
+            data_dir,
+            domain_name,
+            gru_ids=gru_ids,
+            n_expected=int(precip.shape[1]),
+        )
 
         # Store as forcing dict preserving 2D shape
         self._forcing = {
@@ -948,12 +993,15 @@ class JFUSEWorker(InMemoryModelWorker):
         max_distance = self._cfg("MULTI_GAUGE_MAX_DISTANCE")
         min_obs_cv = self._cfg("MULTI_GAUGE_MIN_OBS_CV")
         min_specific_q = self._cfg("MULTI_GAUGE_MIN_SPECIFIC_Q")
+        max_specific_q = self._cfg("MULTI_GAUGE_MAX_SPECIFIC_Q")
         if max_distance is not None:
             max_distance = float(max_distance)
         if min_obs_cv is not None:
             min_obs_cv = float(min_obs_cv)
         if min_specific_q is not None:
             min_specific_q = float(min_specific_q)
+        if max_specific_q is not None:
+            max_specific_q = float(max_specific_q)
 
         if not gauge_mapping_file or not Path(gauge_mapping_file).exists():
             self.logger.warning(f"Gauge mapping file not found: {gauge_mapping_file}")
@@ -1068,6 +1116,22 @@ class JFUSEWorker(InMemoryModelWorker):
                             self.logger.info(
                                 f"Gauge {gauge_name} (id={gauge_id}): excluded -- "
                                 f"specific Q={specific_q:.0f} mm/yr < {min_specific_q}"
+                            )
+                            continue
+
+                # Max specific-discharge filter: drop spring-fed / groundwater-
+                # *gaining* catchments whose observed runoff exceeds plausible
+                # precip (obs >> catchment precip) and cannot be water-balanced.
+                if max_specific_q is not None:
+                    area_km2 = float(row.get("area_calc", 0.0))
+                    if area_km2 > 0:
+                        valid_q = qobs_aligned.dropna()
+                        mean_q_m3s = float(valid_q.mean()) if len(valid_q) > 0 else 0.0
+                        specific_q = mean_q_m3s * 86400 * 365.25 / (area_km2 * 1e6) * 1000
+                        if specific_q > max_specific_q:
+                            self.logger.info(
+                                f"Gauge {gauge_name} (id={gauge_id}): excluded -- "
+                                f"specific Q={specific_q:.0f} mm/yr > {max_specific_q}"
                             )
                             continue
 

@@ -187,6 +187,7 @@ def coupled_simulate(
     start_doy: int = 1,
     glacier_frac: Optional[Array] = None,
     glacier_dtemp: Optional[Array] = None,
+    elev_anom: Optional[Array] = None,
 ) -> Tuple[Array, Array, FUSEState]:
     """Run coupled FUSE + routing simulation.
 
@@ -247,6 +248,7 @@ def coupled_simulate(
         start_doy,
         glacier_frac=glacier_frac,
         glacier_dtemp=glacier_dtemp,
+        elev_anom=elev_anom,
     )
 
     # Convert runoff to lateral inflow (m³/s)
@@ -306,6 +308,7 @@ def coupled_simulate_full(
     start_doy: int = 1,
     glacier_frac: Optional[Array] = None,
     glacier_dtemp: Optional[Array] = None,
+    elev_anom: Optional[Array] = None,
 ) -> Tuple[Array, Array, FUSEState]:
     """Coupled FUSE + routing simulation that also returns per-reach discharge.
 
@@ -335,6 +338,7 @@ def coupled_simulate_full(
         start_doy,
         glacier_frac=glacier_frac,
         glacier_dtemp=glacier_dtemp,
+        elev_anom=elev_anom,
     )
 
     lateral_inflow = runoff_to_inflow(runoff, hru_areas, fuse_dt * 86400.0)
@@ -416,6 +420,7 @@ class CoupledModel(eqx.Module):
     hru_areas: Array
     glacier_frac: Optional[Array]
     glacier_dtemp: Optional[Array]
+    elev_anom: Optional[Array]
     routing_dt: Optional[float] = eqx.field(static=True)
     n_substeps: int = eqx.field(static=True)
 
@@ -430,6 +435,7 @@ class CoupledModel(eqx.Module):
         routing_max_substeps: int = 10,
         glacier_frac: Optional[Array] = None,
         glacier_dtemp: Optional[Array] = None,
+        elev_anom: Optional[Array] = None,
     ):
         """Initialize coupled model.
 
@@ -462,6 +468,9 @@ class CoupledModel(eqx.Module):
         # Per-HRU temperature offset (<=0) lapsing GRU-mean air temp to the
         # glacier-surface elevation for ice melt; None => no offset.
         self.glacier_dtemp = glacier_dtemp
+        # Per-HRU elevation anomaly (100m units, vs domain reference) for the
+        # orographic precip gradient (opg); None => no orographic correction.
+        self.elev_anom = elev_anom
         self.routing_dt = routing_dt
         # Resolve a static sub-step count from the (concrete) network geometry.
         self.n_substeps = _resolve_n_substeps(
@@ -567,6 +576,7 @@ class CoupledModel(eqx.Module):
             start_doy=start_doy,
             glacier_frac=self.glacier_frac,
             glacier_dtemp=self.glacier_dtemp,
+            elev_anom=self.elev_anom,
         )
 
         return outlet_Q, runoff
@@ -611,6 +621,7 @@ class CoupledModel(eqx.Module):
             start_doy=start_doy,
             glacier_frac=self.glacier_frac,
             glacier_dtemp=self.glacier_dtemp,
+            elev_anom=self.elev_anom,
         )
         return outlet_Q, Q_all, final_state
 
