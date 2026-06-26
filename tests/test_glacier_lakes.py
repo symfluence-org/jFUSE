@@ -39,7 +39,7 @@ class TestGlacier:
         legacy = jnp.ones((30,))
         p = Parameters.from_array(legacy, n_hrus=1)
         assert float(p.DDF_ice) == pytest.approx(7.0)
-        assert float(p.K_glac) == pytest.approx(0.3)
+        assert float(p.K_glac) == pytest.approx(0.1)
 
     def test_zero_fraction_is_identical_to_no_glacier(self):
         forcing = _forcing()

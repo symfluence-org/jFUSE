@@ -191,6 +191,7 @@ def compute_glacier(
     dt: float = 1.0,
     swe_bare_thresh: float = 5.0,
     exposure_width: float = 1.0,
+    temp_offset: ArrayLike = 0.0,
 ) -> Tuple[Array, Array, Array, Array]:
     """Temperature-index glacier melt + fast glacier reservoir (per unit
     glacierized area).
@@ -241,7 +242,12 @@ def compute_glacier(
     exposure = smooth_sigmoid(swe_bare_thresh - SWE, exposure_width)
 
     # Degree-day ice melt, only on exposed ice and limited by available ice.
-    melt_potential = DDF_ice * smooth_max(temp - T_ice, 0.0, 0.1) * exposure
+    # ``temp_offset`` (<=0) lapses the air temperature from the GRU-mean
+    # elevation to the (higher, colder) glacier-surface elevation, so ice does
+    # not melt at the warmer valley-mean temperature. Equivalent to raising the
+    # ice-melt threshold; affects only ice melt, not rain/snowmelt routing.
+    temp_ice = temp + temp_offset
+    melt_potential = DDF_ice * smooth_max(temp_ice - T_ice, 0.0, 0.1) * exposure
     ice_melt = smooth_min(melt_potential, smooth_max(ICE, 0.0, 0.01), 0.01)
     ICE_new = smooth_max(ICE - ice_melt * dt, 0.0, 0.01)
 

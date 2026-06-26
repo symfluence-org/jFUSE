@@ -84,7 +84,9 @@ try:
         # Return loss (1 - NSE, lower is better)
         return 1.0 - nse
 
-    def multi_gauge_kge_loss(Q_all, gauge_indices, gauge_obs, warmup, aggregation="median"):
+    def multi_gauge_kge_loss(
+        Q_all, gauge_indices, gauge_obs, warmup, aggregation="median", kge_floor=None
+    ):
         """Multi-gauge KGE loss aggregated across gauges.
 
         Args:
@@ -93,6 +95,10 @@ try:
             gauge_obs: Observed discharge per gauge (time x gauges)
             warmup: Number of warmup timesteps to skip
             aggregation: 'median' or 'mean' for aggregating per-gauge losses
+            kge_floor: If set, cap each gauge's KGE contribution at this value
+                (i.e. clip per-gauge loss to ``1 - kge_floor``). Lets a 'mean'
+                aggregation count every gauge without a handful of pathological
+                gauges (leaky karst, residual glacier bias) dominating it.
         """
         losses = []
         for i, seg_idx in enumerate(gauge_indices):
@@ -105,6 +111,8 @@ try:
         if not losses:
             return jnp.array(2.0)
         loss_arr = jnp.stack(losses)
+        if kge_floor is not None:
+            loss_arr = jnp.minimum(loss_arr, 1.0 - kge_floor)
         if aggregation == "median":
             return jnp.median(loss_arr)
         return jnp.mean(loss_arr)
@@ -205,6 +213,7 @@ class JFUSEWorker(InMemoryModelWorker):
         self._forcing_tuple: Any = None
         self._network_arrays: Any = None
         self._glacier_frac: Any = None  # Per-GRU glacier fraction (set in forcing load)
+        self._glacier_dtemp: Any = None  # Per-GRU glacier-surface temp offset (K, <=0)
 
         # Distributed mode output
         self._last_outlet_q: Any = None
@@ -286,6 +295,43 @@ class JFUSEWorker(InMemoryModelWorker):
             return jnp.asarray(frac, dtype=jnp.float32)
         except Exception:  # noqa: BLE001 — glacier is optional, never block calibration
             self.logger.debug("Glacier fraction load failed", exc_info=True)
+            return None
+
+    def _load_glacier_dtemp_aligned(self, data_dir, domain_name, gru_ids, n_expected):
+        """Load per-GRU glacier-surface temperature offset aligned to forcing GRUs.
+
+        Keyed by ``GRU_ID`` via an RGI ∩ river-basins overlay (glacier zmed vs
+        GRU-mean elevation, lapsed at ``LAPSE_RATE``). Returns a ``jnp`` array
+        ``[n_expected]`` (<=0 K, 0 where no glacier) or ``None`` when unavailable.
+        """
+        import jax.numpy as jnp
+
+        if gru_ids is None:
+            return None
+        lapse = float(self._cfg("LAPSE_RATE", 0.0065) or 0.0065)
+        project_dir = Path(data_dir) / f"domain_{domain_name}"
+        try:
+            from jfuse.static_inputs import glacier_dtemp_by_gru_id
+
+            dmap = glacier_dtemp_by_gru_id(project_dir, domain_name, lapse, self.logger)
+            if not dmap:
+                return None
+            dtemp = np.array([dmap.get(int(g), 0.0) for g in gru_ids], dtype="float32")
+            if dtemp.size != n_expected:
+                self.logger.warning(
+                    "Glacier dtemp length %d != %d forcing GRUs; skipping glacier lapse.",
+                    dtemp.size,
+                    n_expected,
+                )
+                return None
+            self.logger.info(
+                "Glacier dtemp aligned by GRU_ID: %d GRUs cooled (min=%.2f K).",
+                int((dtemp < 0).sum()),
+                float(dtemp.min()) if dtemp.size else 0.0,
+            )
+            return jnp.asarray(dtemp)
+        except Exception:  # noqa: BLE001 — glacier lapse is optional, never block calibration
+            self.logger.debug("Glacier dtemp load failed", exc_info=True)
             return None
 
     def _load_lumped_glacier_frac(self):
@@ -598,6 +644,7 @@ class JFUSEWorker(InMemoryModelWorker):
             routing_substep_method=self.routing_substep_method,
             routing_max_substeps=self.routing_max_substeps,
             glacier_frac=glacier_frac,
+            glacier_dtemp=self._glacier_dtemp,
         )
         self._model = self._coupled_model.fuse_model
         self._default_params = self._coupled_model.default_params()
@@ -857,6 +904,14 @@ class JFUSEWorker(InMemoryModelWorker):
             domain_name,
             gru_ids=gru_ids,
             gru_subset=gru_subset,
+            n_expected=int(precip.shape[1]),
+        )
+        # Per-GRU glacier-surface temperature offset for ice melt (aligned by
+        # GRU_ID); lapses ice-melt temperature to the glacier-surface elevation.
+        self._glacier_dtemp = self._load_glacier_dtemp_aligned(
+            data_dir,
+            domain_name,
+            gru_ids=gru_ids,
             n_expected=int(precip.shape[1]),
         )
 
@@ -1343,6 +1398,9 @@ class JFUSEWorker(InMemoryModelWorker):
         gauge_obs = self._gauge_obs
         gauge_indices = self._gauge_reach_indices
         aggregation = self._cfg("MULTI_GAUGE_AGGREGATION", "median")
+        kge_floor = self._cfg("MULTI_GAUGE_KGE_FLOOR", None)
+        if kge_floor is not None:
+            kge_floor = float(kge_floor)
 
         if has_multi_gauge:
             obs = gauge_obs
@@ -1356,7 +1414,9 @@ class JFUSEWorker(InMemoryModelWorker):
             if is_distributed and has_multi_gauge:
                 # Multi-gauge path: simulate_full -> multi_gauge_kge_loss
                 _, Q_all, _ = coupled_model.simulate_full(forcing_tuple, params_obj)
-                return multi_gauge_kge_loss(Q_all, gauge_indices, obs, warmup, aggregation)
+                return multi_gauge_kge_loss(
+                    Q_all, gauge_indices, obs, warmup, aggregation, kge_floor
+                )
             elif is_distributed:
                 # Single outlet path
                 outlet_q, _ = coupled_model.simulate(
@@ -1471,6 +1531,11 @@ class JFUSEWorker(InMemoryModelWorker):
                 aggregation = self._get_config_value(
                     lambda: None, default="median", dict_key="MULTI_GAUGE_AGGREGATION"
                 )
+                kge_floor = self._get_config_value(
+                    lambda: None, default=None, dict_key="MULTI_GAUGE_KGE_FLOOR"
+                )
+                if kge_floor is not None:
+                    kge_floor = float(kge_floor)
                 loss_val = float(
                     multi_gauge_kge_loss(
                         Q_all,
@@ -1478,6 +1543,7 @@ class JFUSEWorker(InMemoryModelWorker):
                         self._gauge_obs,
                         self.warmup_days,
                         aggregation,
+                        kge_floor,
                     )
                 )
                 # Return 1 - loss (KGE value, higher is better)
