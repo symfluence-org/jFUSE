@@ -82,6 +82,7 @@ def fuse_step(
             day_of_year,
             params.MFMAX,
             params.MFMIN,
+            SCF=params.SCF,
         )
         throughfall = rain + melt
     else:
@@ -283,6 +284,7 @@ def fuse_step(
                 day_of_year,
                 params.MFMAX,
                 params.MFMIN,
+                SCF=params.SCF,
             )
         else:
             rain_g, melt_g, SWE_glac_new = rain, melt, state.SWE_glac
@@ -362,6 +364,7 @@ def fuse_simulate(
     glacier_frac: Optional[Array] = None,
     remat_scan: bool = True,
     glacier_dtemp: Optional[Array] = None,
+    elev_anom: Optional[Array] = None,
 ) -> Tuple[Array, State]:
     """Run FUSE simulation over a time series.
 
@@ -382,6 +385,13 @@ def fuse_simulate(
             states: Final model state
     """
     precip, pet, temp = forcing_series
+
+    # Orographic precipitation correction (static in time): scale precip per HRU
+    # by (1 + opg[%/100m] * elevation_anomaly[100m] / 100). opg defaults to 0
+    # (neutral); elev_anom is the HRU elevation relative to the domain reference.
+    if elev_anom is not None:
+        opg_factor = jnp.maximum(1.0 + params.opg * jnp.asarray(elev_anom) / 100.0, 0.0)
+        precip = precip * opg_factor
 
     # Broadcast the initial state to the forcing's per-HRU shape so the scan
     # carry type is stable. Without this, a scalar default state (n_hrus=1)

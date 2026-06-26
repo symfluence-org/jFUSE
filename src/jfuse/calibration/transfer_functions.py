@@ -54,6 +54,11 @@ PARAM_ATTR_MAP: Dict[str, str] = {
     # Glacier: ice degree-day factor varies with elevation (lower, warmer,
     # dirtier termini melt faster than high clean accumulation zones).
     "DDF_ice": "elev_m",
+    # Precip correction: snow-undercatch (SCF) grows where snow dominates;
+    # orographic gradient (opg) is a single domain-wide gradient (it already
+    # multiplies the per-HRU elevation anomaly, so keep it spatially constant).
+    "SCF": "snow_frac",
+    "opg": "constant",
 }
 
 # Default calibrated parameter list (matches existing JFUSE_PARAMS_TO_CALIBRATE)
